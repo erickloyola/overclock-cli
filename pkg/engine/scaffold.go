@@ -93,44 +93,6 @@ func MaterializeProject(markdownText string, targetDir string) ([]ExtractedFile,
 		}
 	}
 
-	// Auto-generate standard package.json if frontend project lacks one
-	pkgJsonPath := filepath.Join(targetDir, "package.json")
-	if _, err := os.Stat(pkgJsonPath); os.IsNotExist(err) && len(extracted) > 0 {
-		defaultPkg := `{
-  "name": "ai-orchestrator-dashboard",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "lucide-react": "^0.475.0",
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^2.6.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.0",
-    "vite": "^6.1.0",
-    "tailwindcss": "^3.4.17",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.5.1"
-  }
-}
-`
-		_ = os.WriteFile(pkgJsonPath, []byte(defaultPkg), 0644)
-		extracted = append(extracted, ExtractedFile{
-			Path:  "package.json",
-			Bytes: len(defaultPkg),
-		})
-	}
-
 	return extracted, nil
 }
 

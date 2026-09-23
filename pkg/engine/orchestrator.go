@@ -97,6 +97,14 @@ func (o *Orchestrator) RunCreateProject(
 	o.term.LogInfo("📋 Projeto planejado: '%s' | Stack: %s | Gerenciador: %s",
 		manifest.Name, manifest.Stack, manifest.PackageManager)
 
+	// Merge global cross-project knowledge
+	if gm, gmErr := memory.LoadGlobalMemory(); gmErr == nil && gm != nil {
+		bb.MergeGlobalMemory(gm)
+		if len(gm.Facts) > 0 {
+			o.term.LogInfo("🧠 %d fatos e convenções herdados da memória global do usuário", len(gm.Facts))
+		}
+	}
+
 	// 4. Stage 2: Distribution Verifier & Auditor
 	o.term.LogInfo("🔍 [Instância 2: Verificador] Auditando distribuição de tarefas e grafo de dependências...")
 	auditRep, err := verifier.AuditBlueprint(bb)
@@ -131,6 +139,24 @@ func (o *Orchestrator) RunCreateProject(
 		o.term.LogWarn("⚠️ O Supervisor detectou %d inconsistências. Aplicando correções...", len(supRep.Errors))
 		for _, errDesc := range supRep.Errors {
 			o.term.LogWarn("   • %s", errDesc)
+		}
+
+		fileErrors := make(map[string][]string)
+		for _, note := range bb.GetNotes() {
+			if note.Severity == "error" && !note.Fixed {
+				fileErrors[note.File] = append(fileErrors[note.File], note.Description)
+			}
+		}
+
+		for file, descs := range fileErrors {
+			combinedDesc := strings.Join(descs, "; ")
+			o.term.LogInfo("🔧 Supervisor aplicando patch em %s (%s)...", file, combinedDesc)
+			if patchErr := supervisor.AutoPatchFile(ctx, o.runner, bb, file, combinedDesc, o.cfg.Model); patchErr != nil {
+				o.term.LogError("❌ Falha ao aplicar patch em %s: %v", file, patchErr)
+			} else {
+				bb.MarkNotesFixed(file)
+				o.term.LogInfo("✅ Patch aplicado com sucesso em %s", file)
+			}
 		}
 	}
 
@@ -167,23 +193,43 @@ func (o *Orchestrator) RunCreateProject(
 	runCmd := manifest.RunCommand
 	if runCmd == "" {
 		pm := strings.ToLower(manifest.PackageManager)
-		if pm == "bun" {
+		switch pm {
+		case "bun":
 			runCmd = "bun dev"
-		} else if pm == "go" {
+		case "go":
 			runCmd = "go run ."
-		} else {
+		case "cargo":
+			runCmd = "cargo run"
+		case "pip", "python", "poetry":
+			runCmd = "python3 main.py"
+		case "make":
+			runCmd = "make run"
+		case "npm", "pnpm", "yarn":
 			runCmd = "npm run dev"
+		default:
+			runCmd = "./run.sh"
 		}
 	}
 
 	fmt.Printf("\n " + ui.Bold + "🚀 Para inicializar e rodar o projeto:" + ui.Reset + "\n")
 	fmt.Printf("   " + ui.Green + "cd %s" + ui.Reset, outDir)
 	if !lifecycle.InstallDeps && manifest.PackageManager != "" {
-		if manifest.PackageManager == "go" {
+		switch strings.ToLower(manifest.PackageManager) {
+		case "go":
 			fmt.Printf(" && " + ui.Green + "go mod tidy" + ui.Reset)
-		} else if manifest.PackageManager == "bun" {
+		case "bun":
 			fmt.Printf(" && " + ui.Green + "bun install" + ui.Reset)
-		} else {
+		case "cargo":
+			fmt.Printf(" && " + ui.Green + "cargo check" + ui.Reset)
+		case "pip":
+			fmt.Printf(" && " + ui.Green + "pip install -r requirements.txt" + ui.Reset)
+		case "poetry":
+			fmt.Printf(" && " + ui.Green + "poetry install" + ui.Reset)
+		case "make":
+			fmt.Printf(" && " + ui.Green + "make" + ui.Reset)
+		case "none", "":
+			// No install step needed
+		default:
 			fmt.Printf(" && " + ui.Green + "%s install" + ui.Reset, manifest.PackageManager)
 		}
 	}
@@ -508,6 +554,24 @@ func (o *Orchestrator) RunResumeProject(
 		o.term.LogWarn("⚠️ O Supervisor detectou %d inconsistências. Aplicando correções...", len(supRep.Errors))
 		for _, errDesc := range supRep.Errors {
 			o.term.LogWarn("   • %s", errDesc)
+		}
+
+		fileErrors := make(map[string][]string)
+		for _, note := range bb.GetNotes() {
+			if note.Severity == "error" && !note.Fixed {
+				fileErrors[note.File] = append(fileErrors[note.File], note.Description)
+			}
+		}
+
+		for file, descs := range fileErrors {
+			combinedDesc := strings.Join(descs, "; ")
+			o.term.LogInfo("🔧 Supervisor aplicando patch em %s (%s)...", file, combinedDesc)
+			if patchErr := supervisor.AutoPatchFile(ctx, o.runner, bb, file, combinedDesc, o.cfg.Model); patchErr != nil {
+				o.term.LogError("❌ Falha ao aplicar patch em %s: %v", file, patchErr)
+			} else {
+				bb.MarkNotesFixed(file)
+				o.term.LogInfo("✅ Patch aplicado com sucesso em %s", file)
+			}
 		}
 	}
 

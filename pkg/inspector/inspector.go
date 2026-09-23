@@ -51,26 +51,28 @@ func InspectSystem(ctx context.Context) *SystemEnvironment {
 		env.Tools[name] = info
 	}
 
-	// Recommendations
+	// Recommendations by ecosystem
 	if env.Tools["bun"].Available {
-		env.Recommended["js_runtime"] = "bun"
-		env.Recommended["package_manager"] = "bun"
+		env.Recommended["javascript_typescript"] = "bun"
 	} else if env.Tools["pnpm"].Available {
-		env.Recommended["js_runtime"] = "node"
-		env.Recommended["package_manager"] = "pnpm"
+		env.Recommended["javascript_typescript"] = "node + pnpm"
 	} else if env.Tools["npm"].Available {
-		env.Recommended["js_runtime"] = "node"
-		env.Recommended["package_manager"] = "npm"
+		env.Recommended["javascript_typescript"] = "node + npm"
 	}
 
 	if env.Tools["go"].Available {
-		env.Recommended["go"] = env.Tools["go"].Version
+		env.Recommended["go"] = fmt.Sprintf("go (%s)", env.Tools["go"].Version)
 	}
 	if env.Tools["cargo"].Available {
-		env.Recommended["rust"] = env.Tools["cargo"].Version
+		env.Recommended["rust"] = fmt.Sprintf("cargo (%s)", env.Tools["cargo"].Version)
 	}
 	if env.Tools["python3"].Available {
-		env.Recommended["python"] = env.Tools["python3"].Version
+		env.Recommended["python"] = fmt.Sprintf("python3 (%s)", env.Tools["python3"].Version)
+	} else if env.Tools["python"].Available {
+		env.Recommended["python"] = fmt.Sprintf("python (%s)", env.Tools["python"].Version)
+	}
+	if env.Tools["docker"].Available {
+		env.Recommended["containers"] = "docker"
 	}
 
 	return env
@@ -120,10 +122,11 @@ func (env *SystemEnvironment) SummaryString() string {
 	}
 
 	if len(env.Recommended) > 0 {
-		sb.WriteString("Recomendações de ecossistema local:\n")
+		sb.WriteString("Ferramentas disponíveis no sistema hospedeiro:\n")
 		for k, v := range env.Recommended {
 			sb.WriteString(fmt.Sprintf("• %s: %s\n", k, v))
 		}
+		sb.WriteString("DIRETRIZ: Selecione a linguagem, runtime e ferramentas de forma autônoma e estritamente adequada ao domínio do projeto solicitado, sem favorecer nenhuma stack pré-concebida.\n")
 	}
 
 	return sb.String()

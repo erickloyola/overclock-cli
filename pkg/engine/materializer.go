@@ -137,6 +137,11 @@ func ExecuteLifecycleHooks(
 		case pm == "pip" || hasFile(outDir, "requirements.txt"):
 			cmdName = "pip"
 			cmdArgs = []string{"install", "-r", "requirements.txt"}
+		case pm == "poetry" || hasFile(outDir, "poetry.lock"):
+			cmdName = "poetry"
+			cmdArgs = []string{"install"}
+		case pm == "make" || hasFile(outDir, "Makefile"):
+			cmdName = "make"
 		default:
 			term.LogWarn("Nenhum gerenciador de dependências aplicável identificado para auto-instalação.")
 		}
@@ -157,12 +162,14 @@ func ExecuteLifecycleHooks(
 	if opts.VerifyBuild {
 		buildCommand := manifest.BuildCommand
 		if buildCommand == "" {
-			if hasFile(outDir, "package.json") {
-				buildCommand = "npm run build"
-			} else if hasFile(outDir, "go.mod") {
+			if hasFile(outDir, "go.mod") {
 				buildCommand = "go build ./..."
 			} else if hasFile(outDir, "Cargo.toml") {
 				buildCommand = "cargo check"
+			} else if hasFile(outDir, "Makefile") {
+				buildCommand = "make"
+			} else if hasFile(outDir, "package.json") {
+				buildCommand = "npm run build"
 			}
 		}
 
@@ -179,6 +186,8 @@ func ExecuteLifecycleHooks(
 
 					// Try to locate error file from output
 					errFile := findOffendingFile(out, bb.GetAllFiles())
+					bb.RecordLesson("compiler", truncate(out, 300), "Ajuste os imports e assinaturas reportados pelo compilador", errFile)
+
 					if errFile != "" {
 						term.LogInfo("🔧 Supervisor aplicando patch cirúrgico em %s...", errFile)
 						patchErr := supervisor.AutoPatchFile(ctx, runner, bb, errFile, out, model)
@@ -190,6 +199,8 @@ func ExecuteLifecycleHooks(
 								outRetry, errRetry := runLocalCmd(ctx, outDir, parts[0], parts[1:]...)
 								if errRetry == nil {
 									term.LogInfo("✅ Build aprovado com sucesso após auto-correção!")
+									bb.RecordFact(memory.FactCategoryRuntime, "build_status", "verified", "Compiler")
+									bb.RecordLesson("compiler-fix", "Divergência de compilação resolvida com sucesso", fmt.Sprintf("Arquivo %s aprovado no rebuild", errFile), errFile)
 								} else {
 									term.LogWarn("⚠️ Build ainda reporta avisos após auto-correção: %s", truncate(outRetry, 300))
 								}

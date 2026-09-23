@@ -35,17 +35,62 @@ type ProjectManifest struct {
 	Conventions    []string `json:"conventions"`    // styling, architecture rules, folder patterns
 }
 
+// FactCategory classifies a shared piece of operational knowledge (OverMemory style).
+type FactCategory string
+
+const (
+	FactCategoryConfig     FactCategory = "CONFIG"     // Ports, hostnames, paths, environment variables
+	FactCategoryConvention FactCategory = "CONVENTION" // Naming conventions, architectural rules, code style
+	FactCategoryDependency FactCategory = "DEP"        // Package versions, required tooling, caveats
+	FactCategoryRuntime    FactCategory = "RUNTIME"    // Build flags, execution commands, runtime requirements
+	FactCategoryGeneral    FactCategory = "GENERAL"    // Generic operational notes
+)
+
+// SharedFact represents a durable piece of operational knowledge across all workers.
+type SharedFact struct {
+	ID        string       `json:"id"`
+	Category  FactCategory `json:"category"`
+	Key       string       `json:"key"`
+	Value     string       `json:"value"`
+	Source    string       `json:"source"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
+// LessonLearned captures a compilation or QA error and its mitigation guidance (Negative Feedback Memory).
+type LessonLearned struct {
+	ID        string    `json:"id"`
+	Trigger   string    `json:"trigger"`  // "compiler", "supervisor", "runtime"
+	Pattern   string    `json:"pattern"`  // What went wrong (error description or signature)
+	Guidance  string    `json:"guidance"` // Actionable mitigation instruction
+	File      string    `json:"file,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// FileRevision holds an immutable snapshot of a prior version of a file.
+type FileRevision struct {
+	Version    int       `json:"version"`
+	Content    string    `json:"content"`
+	Bytes      int       `json:"bytes"`
+	Hash       string    `json:"hash"`
+	ModifiedBy string    `json:"modified_by"`
+	Reason     string    `json:"reason,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
 // FileArtifact represents a generated code or configuration file.
 type FileArtifact struct {
-	Path        string    `json:"path"`
-	Purpose     string    `json:"purpose"`
-	Content     string    `json:"content"`
-	Hash        string    `json:"hash"`
-	Bytes       int       `json:"bytes"`
-	Exports     []string  `json:"exports,omitempty"`
-	Imports     []string  `json:"imports,omitempty"`
-	GeneratedBy string    `json:"generated_by"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Path        string         `json:"path"`
+	Purpose     string         `json:"purpose"`
+	Content     string         `json:"content"`
+	PublicAPI   string         `json:"public_api,omitempty"` // Compact API surface / interface stub
+	Hash        string         `json:"hash"`
+	Bytes       int            `json:"bytes"`
+	Exports     []string       `json:"exports,omitempty"`
+	Imports     []string       `json:"imports,omitempty"`
+	GeneratedBy string         `json:"generated_by"`
+	Version     int            `json:"version"`
+	History     []FileRevision `json:"history,omitempty"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // TaskNode represents a node in the project execution Directed Acyclic Graph (DAG).
@@ -82,6 +127,8 @@ type Blackboard struct {
 	Tasks       map[string]*TaskNode     `json:"tasks"`     // "task_1" -> TaskNode
 	Environment map[string]string        `json:"environment"`
 	Notes       []SupervisorNote         `json:"notes"`
+	Facts       map[string]*SharedFact   `json:"facts"`   // key -> SharedFact (OverMemory)
+	Lessons     []LessonLearned          `json:"lessons"` // Compiler/supervisor lessons learned
 	CreatedAt   time.Time                `json:"created_at"`
 }
 
@@ -93,6 +140,8 @@ func NewBlackboard() *Blackboard {
 		Tasks:       make(map[string]*TaskNode),
 		Environment: make(map[string]string),
 		Notes:       make([]SupervisorNote, 0),
+		Facts:       make(map[string]*SharedFact),
+		Lessons:     make([]LessonLearned, 0),
 		CreatedAt:   time.Now(),
 	}
 }
@@ -236,22 +285,223 @@ func (b *Blackboard) UpdateTaskStatus(id string, status TaskStatus, duration tim
 }
 
 // RecordFile records or updates a generated file artifact in shared memory.
+// It computes hashing and public API extraction BEFORE acquiring the write lock, avoiding mutex contention.
 func (b *Blackboard) RecordFile(path, purpose, content, generatedBy string) {
+	h := sha256.Sum256([]byte(content))
+	hashStr := hex.EncodeToString(h[:])
+	publicAPI := ExtractPublicAPI(path, content)
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	h := sha256.Sum256([]byte(content))
-	hashStr := hex.EncodeToString(h[:])
+	existing, exists := b.Files[path]
+	version := 1
+	var history []FileRevision
+
+	if exists && existing != nil {
+		version = existing.Version + 1
+		history = make([]FileRevision, len(existing.History), len(existing.History)+1)
+		copy(history, existing.History)
+
+		// Archive current state into revision history
+		history = append(history, FileRevision{
+			Version:    existing.Version,
+			Content:    existing.Content,
+			Bytes:      existing.Bytes,
+			Hash:       existing.Hash,
+			ModifiedBy: existing.GeneratedBy,
+			Reason:     purpose,
+			Timestamp:  existing.UpdatedAt,
+		})
+	}
 
 	b.Files[path] = &FileArtifact{
 		Path:        path,
 		Purpose:     purpose,
 		Content:     content,
+		PublicAPI:   publicAPI,
 		Hash:        hashStr,
 		Bytes:       len(content),
 		GeneratedBy: generatedBy,
+		Version:     version,
+		History:     history,
 		UpdatedAt:   time.Now(),
 	}
+}
+
+// GetFileRevisions returns all past revisions of a given file.
+func (b *Blackboard) GetFileRevisions(path string) []FileRevision {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	f, exists := b.Files[path]
+	if !exists || f == nil {
+		return nil
+	}
+	cp := make([]FileRevision, len(f.History))
+	copy(cp, f.History)
+	return cp
+}
+
+// RollbackFile restores a file to a specific prior version in its revision history.
+func (b *Blackboard) RollbackFile(path string, targetVersion int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	f, exists := b.Files[path]
+	if !exists || f == nil {
+		return fmt.Errorf("arquivo %s não encontrado para rollback", path)
+	}
+
+	for _, rev := range f.History {
+		if rev.Version == targetVersion {
+			newHistory := append(f.History, FileRevision{
+				Version:    f.Version,
+				Content:    f.Content,
+				Bytes:      f.Bytes,
+				Hash:       f.Hash,
+				ModifiedBy: f.GeneratedBy,
+				Reason:     fmt.Sprintf("Rollback para v%d", targetVersion),
+				Timestamp:  time.Now(),
+			})
+
+			f.Version++
+			f.Content = rev.Content
+			f.Bytes = rev.Bytes
+			f.Hash = rev.Hash
+			f.GeneratedBy = fmt.Sprintf("Rollback(v%d)", targetVersion)
+			f.PublicAPI = ExtractPublicAPI(path, rev.Content)
+			f.History = newHistory
+			f.UpdatedAt = time.Now()
+			return nil
+		}
+	}
+
+	return fmt.Errorf("versão %d não encontrada no histórico do arquivo %s", targetVersion, path)
+}
+
+// RecordFact stores or updates an operational fact in shared memory (OverMemory style).
+func (b *Blackboard) RecordFact(category FactCategory, key, value, source string) *SharedFact {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	normKey := strings.ToLower(strings.TrimSpace(key))
+	fact := &SharedFact{
+		ID:        fmt.Sprintf("fact_%d", len(b.Facts)+1),
+		Category:  category,
+		Key:       normKey,
+		Value:     strings.TrimSpace(value),
+		Source:    source,
+		CreatedAt: time.Now(),
+	}
+	b.Facts[normKey] = fact
+	return fact
+}
+
+// GetFact retrieves a shared fact by key.
+func (b *Blackboard) GetFact(key string) (*SharedFact, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	fact, ok := b.Facts[strings.ToLower(strings.TrimSpace(key))]
+	return fact, ok
+}
+
+// GetFacts returns a copy of all recorded shared facts.
+func (b *Blackboard) GetFacts() []*SharedFact {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	list := make([]*SharedFact, 0, len(b.Facts))
+	for _, f := range b.Facts {
+		list = append(list, f)
+	}
+	return list
+}
+
+// GetFactsByCategory returns all facts matching a given category.
+func (b *Blackboard) GetFactsByCategory(category FactCategory) []*SharedFact {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var list []*SharedFact
+	for _, f := range b.Facts {
+		if f.Category == category {
+			list = append(list, f)
+		}
+	}
+	return list
+}
+
+// FactsSummary builds a formatted markdown string of all shared facts for worker prompt injection.
+func (b *Blackboard) FactsSummary() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if len(b.Facts) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[FATOS E DECISÕES COMPARTILHADAS (KNOWLEDGE BASE)]\n")
+	sb.WriteString("Todos os workers devem respeitar estas decisões e configurações aprendidas durante a execução:\n")
+
+	for _, f := range b.Facts {
+		src := f.Source
+		if src == "" {
+			src = "Sistema"
+		}
+		sb.WriteString(fmt.Sprintf("• [%s] %s: %s (registrado por %s)\n", f.Category, f.Key, f.Value, src))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// RecordLesson records a defect or compiler error pattern and its actionable mitigation guidance.
+func (b *Blackboard) RecordLesson(trigger, pattern, guidance, file string) *LessonLearned {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	lesson := LessonLearned{
+		ID:        fmt.Sprintf("lesson_%d", len(b.Lessons)+1),
+		Trigger:   trigger,
+		Pattern:   strings.TrimSpace(pattern),
+		Guidance:  strings.TrimSpace(guidance),
+		File:      file,
+		CreatedAt: time.Now(),
+	}
+	b.Lessons = append(b.Lessons, lesson)
+	return &lesson
+}
+
+// GetLessons returns all recorded lessons learned.
+func (b *Blackboard) GetLessons() []LessonLearned {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	cp := make([]LessonLearned, len(b.Lessons))
+	copy(cp, b.Lessons)
+	return cp
+}
+
+// LessonsSummary builds a formatted markdown string of lessons learned from previous failures.
+func (b *Blackboard) LessonsSummary() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if len(b.Lessons) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[LIÇÕES APRENDIDAS - ERROS A EVITAR]\n")
+	sb.WriteString("Atenção especial para NÃO repetir os seguintes erros detectados anteriormente no projeto:\n")
+
+	for _, l := range b.Lessons {
+		fileContext := ""
+		if l.File != "" {
+			fileContext = fmt.Sprintf(" no arquivo %s", l.File)
+		}
+		sb.WriteString(fmt.Sprintf("• [%s%s] Problema: %s\n  ➔ Ação corretiva: %s\n", l.Trigger, fileContext, l.Pattern, l.Guidance))
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // GetFile retrieves a file artifact by path.
@@ -293,8 +543,21 @@ func (b *Blackboard) GetNotes() []SupervisorNote {
 	return cp
 }
 
+// MarkNotesFixed marks all supervisor notes for a specific file as fixed.
+func (b *Blackboard) MarkNotesFixed(file string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	clean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(file), "./"), "/")
+	for i := range b.Notes {
+		noteClean := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(b.Notes[i].File), "./"), "/")
+		if noteClean == clean || b.Notes[i].File == file {
+			b.Notes[i].Fixed = true
+		}
+	}
+}
+
 // BuildWorkerContext generates dynamic, tailored context injection for a specific task worker.
-// It includes: Manifest + Contracts + Content of direct dependencies (without flooding the prompt).
+// It includes: Manifest + Contracts + Shared Facts + Lessons Learned + Stack Configs + Upstream Dependencies (pruned via PublicAPI).
 func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -322,7 +585,44 @@ func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 		}
 	}
 
-	// 3. Upstream Dependency Files
+	// 3. Shared Facts / Knowledge Base (OverMemory)
+	if len(b.Facts) > 0 {
+		sb.WriteString("[FATOS E DECISÕES COMPARTILHADAS (KNOWLEDGE BASE)]\n")
+		for _, f := range b.Facts {
+			sb.WriteString(fmt.Sprintf("• [%s] %s: %s\n", f.Category, f.Key, f.Value))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 4. Lessons Learned / Erros a Evitar
+	if len(b.Lessons) > 0 {
+		sb.WriteString("[LIÇÕES APRENDIDAS - ERROS A EVITAR]\n")
+		for _, l := range b.Lessons {
+			fileCtx := ""
+			if l.File != "" {
+				fileCtx = fmt.Sprintf(" (%s)", l.File)
+			}
+			sb.WriteString(fmt.Sprintf("• [%s%s] Evite: %s ➔ Correto: %s\n", l.Trigger, fileCtx, l.Pattern, l.Guidance))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 5. Foundation Configs & Package Manifests (if already generated in Stage 1)
+	var foundationConfigs []string
+	for _, confName := range []string{"go.mod", "Cargo.toml", "requirements.txt", "package.json", "Makefile", "pyproject.toml", "CMakeLists.txt"} {
+		if fArt, ok := b.Files[confName]; ok {
+			foundationConfigs = append(foundationConfigs, fmt.Sprintf("--- %s (Manifesto da Stack) ---\n%s\n", confName, strings.TrimSpace(fArt.Content)))
+		}
+	}
+	if len(foundationConfigs) > 0 {
+		sb.WriteString("[CONFIGURAÇÃO E DEPENDÊNCIAS DA STACK]\n")
+		for _, cfgText := range foundationConfigs {
+			sb.WriteString(cfgText)
+			sb.WriteString("\n")
+		}
+	}
+
+	// 6. Upstream Dependency Files (pruned with PublicAPI to prevent context window bloat)
 	if len(task.DependsOn) > 0 {
 		sb.WriteString("[ARQUIVOS DE DEPENDÊNCIAS JÁ GERADOS]\n")
 		for _, depID := range task.DependsOn {
@@ -332,19 +632,27 @@ func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 			}
 			for _, targetPath := range depTask.TargetFiles {
 				if fileArt, ok := b.Files[targetPath]; ok {
-					sb.WriteString(fmt.Sprintf("--- %s (gerado pela tarefa %s) ---\n", targetPath, depID))
-					// Inject full file content up to 1000 lines to ensure all exports and signatures are visible
 					lines := strings.Split(fileArt.Content, "\n")
-					if len(lines) <= 1000 {
+					// Use PublicAPI stub if available and file is large (> 40 lines) to save 60-80% tokens
+					if fileArt.PublicAPI != "" && len(lines) > 40 && len(fileArt.PublicAPI) < len(fileArt.Content) {
+						sb.WriteString(fmt.Sprintf("--- %s (Interface Pública & Contratos - gerado pela tarefa %s) ---\n", targetPath, depID))
+						sb.WriteString(fileArt.PublicAPI)
+						sb.WriteString("\n\n")
+					} else if len(lines) <= 1000 {
+						sb.WriteString(fmt.Sprintf("--- %s (gerado pela tarefa %s) ---\n", targetPath, depID))
 						sb.WriteString(fileArt.Content)
 						sb.WriteString("\n\n")
 					} else {
-						// For exceptionally large files (>1000 lines), preserve first 800 lines and all subsequent exports
+						sb.WriteString(fmt.Sprintf("--- %s (gerado pela tarefa %s) ---\n", targetPath, depID))
 						sb.WriteString(strings.Join(lines[:800], "\n"))
 						sb.WriteString(fmt.Sprintf("\n... [%d linhas intermediárias omitidas] ...\n", len(lines)-800))
 						for _, l := range lines[800:] {
 							trimmed := strings.TrimSpace(l)
-							if strings.HasPrefix(trimmed, "export ") || strings.HasPrefix(trimmed, "type ") || strings.HasPrefix(trimmed, "func ") {
+							if strings.HasPrefix(trimmed, "export ") || strings.HasPrefix(trimmed, "type ") ||
+								strings.HasPrefix(trimmed, "func ") || strings.HasPrefix(trimmed, "def ") ||
+								strings.HasPrefix(trimmed, "class ") || strings.HasPrefix(trimmed, "pub fn ") ||
+								strings.HasPrefix(trimmed, "pub struct ") || strings.HasPrefix(trimmed, "pub enum ") ||
+								strings.HasPrefix(trimmed, "fn ") || strings.HasPrefix(trimmed, "struct ") {
 								sb.WriteString(l + "\n")
 							}
 						}
@@ -358,12 +666,55 @@ func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 	return sb.String()
 }
 
+// BlackboardSnapshot is an immutable view of the blackboard state for safe serialization without lock contention.
+type BlackboardSnapshot struct {
+	Manifest    ProjectManifest          `json:"manifest"`
+	Contracts   map[string]string        `json:"contracts"`
+	Files       map[string]*FileArtifact `json:"files"`
+	Tasks       map[string]*TaskNode     `json:"tasks"`
+	Environment map[string]string        `json:"environment"`
+	Notes       []SupervisorNote         `json:"notes"`
+	Facts       map[string]*SharedFact   `json:"facts"`
+	Lessons     []LessonLearned          `json:"lessons"`
+	CreatedAt   time.Time                `json:"created_at"`
+}
+
 // SaveState serializes the entire blackboard to disk at <outDir>/.overclock/state.json.
-// It uses atomic file replacement (.tmp -> .json) to prevent race conditions or partial writes.
+// It snapshots map pointers under a brief read lock, then performs JSON encoding and file I/O
+// completely lock-free to prevent stalling worker execution in DAG runners.
 func (b *Blackboard) SaveState(outDir string) error {
 	b.mu.RLock()
-	data, err := json.MarshalIndent(b, "", "  ")
+	snap := BlackboardSnapshot{
+		Manifest:    b.Manifest,
+		Contracts:   make(map[string]string, len(b.Contracts)),
+		Files:       make(map[string]*FileArtifact, len(b.Files)),
+		Tasks:       make(map[string]*TaskNode, len(b.Tasks)),
+		Environment: make(map[string]string, len(b.Environment)),
+		Notes:       make([]SupervisorNote, len(b.Notes)),
+		Facts:       make(map[string]*SharedFact, len(b.Facts)),
+		Lessons:     make([]LessonLearned, len(b.Lessons)),
+		CreatedAt:   b.CreatedAt,
+	}
+	for k, v := range b.Contracts {
+		snap.Contracts[k] = v
+	}
+	for k, v := range b.Files {
+		snap.Files[k] = v
+	}
+	for k, v := range b.Tasks {
+		snap.Tasks[k] = v
+	}
+	for k, v := range b.Environment {
+		snap.Environment[k] = v
+	}
+	copy(snap.Notes, b.Notes)
+	for k, v := range b.Facts {
+		snap.Facts[k] = v
+	}
+	copy(snap.Lessons, b.Lessons)
 	b.mu.RUnlock()
+
+	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return fmt.Errorf("falha ao serializar estado da memória: %w", err)
 	}
@@ -405,6 +756,11 @@ func LoadState(filePath string) (*Blackboard, error) {
 	if bb.Files == nil {
 		bb.Files = make(map[string]*FileArtifact)
 	}
+	for _, f := range bb.Files {
+		if f != nil && f.Version <= 0 {
+			f.Version = 1
+		}
+	}
 	if bb.Tasks == nil {
 		bb.Tasks = make(map[string]*TaskNode)
 	}
@@ -413,6 +769,12 @@ func LoadState(filePath string) (*Blackboard, error) {
 	}
 	if bb.Notes == nil {
 		bb.Notes = make([]SupervisorNote, 0)
+	}
+	if bb.Facts == nil {
+		bb.Facts = make(map[string]*SharedFact)
+	}
+	if bb.Lessons == nil {
+		bb.Lessons = make([]LessonLearned, 0)
 	}
 
 	return &bb, nil

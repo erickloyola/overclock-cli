@@ -58,11 +58,12 @@ func ReviewProject(bb *memory.Blackboard) *SupervisionReport {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("[%s] Arquivo vazio ou incompleto (<15 bytes)", cleanP))
 			rep.Passed = false
 			bb.AddSupervisorNote(memory.SupervisorNote{
-				File:        cleanP,
+				File:        f.Path,
 				Severity:    "error",
 				Description: "Arquivo gerado vazio ou truncado",
 				SuggestedBy: "Supervisor",
 			})
+			bb.RecordLesson("supervisor", "Arquivo gerado vazio ou truncado", "Certifique-se de gerar o código completo do arquivo sem omissões", f.Path)
 			continue
 		}
 
@@ -101,7 +102,50 @@ func ReviewProject(bb *memory.Blackboard) *SupervisionReport {
 				}
 
 				if !found {
-					rep.Warnings = append(rep.Warnings, fmt.Sprintf("[%s] Import relativo '%s' pode não resolver para um arquivo existente", cleanP, relTarget))
+					errMsg := fmt.Sprintf("[%s] Import relativo '%s' aponta para arquivo inexistente", cleanP, relTarget)
+					rep.Errors = append(rep.Errors, errMsg)
+					rep.Passed = false
+					bb.AddSupervisorNote(memory.SupervisorNote{
+						File:        f.Path,
+						Severity:    "error",
+						Description: fmt.Sprintf("Import relativo '%s' não resolvido", relTarget),
+						SuggestedBy: "Supervisor",
+					})
+					bb.RecordLesson("supervisor", fmt.Sprintf("Import relativo '%s' inexistente", relTarget), "Verifique os caminhos relativos de importação em relação aos arquivos existentes", f.Path)
+				}
+			}
+		}
+
+		// 4. Check relative imports in Python
+		if ext == ".py" {
+			pyImportRegex := regexp.MustCompile(`(?:from|import)\s+(\.[a-zA-Z0-9_.]*)`)
+			matches := pyImportRegex.FindAllStringSubmatch(content, -1)
+			dir := filepath.Dir(cleanP)
+			for _, m := range matches {
+				relTarget := strings.TrimPrefix(m[1], ".")
+				relTarget = strings.ReplaceAll(relTarget, ".", "/")
+				resolved := filepath.Clean(filepath.Join(dir, relTarget))
+				candidates := []string{
+					resolved + ".py",
+					filepath.Join(resolved, "__init__.py"),
+				}
+				found := false
+				for _, c := range candidates {
+					if _, ok := fileIndex[cleanPath(c)]; ok {
+						found = true
+						break
+					}
+				}
+				if !found && relTarget != "" {
+					errMsg := fmt.Sprintf("[%s] Import relativo Python '%s' aponta para arquivo inexistente", cleanP, m[1])
+					rep.Errors = append(rep.Errors, errMsg)
+					rep.Passed = false
+					bb.AddSupervisorNote(memory.SupervisorNote{
+						File:        f.Path,
+						Severity:    "error",
+						Description: fmt.Sprintf("Import relativo Python '%s' não resolvido", m[1]),
+						SuggestedBy: "Supervisor",
+					})
 				}
 			}
 		}
@@ -125,6 +169,16 @@ func AutoPatchFile(
 	model string,
 ) error {
 	fileArt, exists := bb.GetFile(filePath)
+	if !exists {
+		clean := cleanPath(filePath)
+		for _, f := range bb.GetAllFiles() {
+			if cleanPath(f.Path) == clean {
+				fileArt = f
+				exists = true
+				break
+			}
+		}
+	}
 	if !exists {
 		return fmt.Errorf("arquivo %s não encontrado na memória para patch", filePath)
 	}
@@ -158,6 +212,7 @@ Instrução: Reescreva o arquivo completo %s sanando totalmente o problema detec
 
 	cleanCode := stripCodeFences(res.Text)
 	bb.RecordFile(filePath, fileArt.Purpose, cleanCode, "Supervisor-Patch")
+	bb.RecordLesson("supervisor-patch", issueDescription, fmt.Sprintf("Patch corretivo aplicado em %s", filePath), filePath)
 	return nil
 }
 

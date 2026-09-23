@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -183,12 +184,15 @@ func executeTaskNode(
 Sua missão é gerar os arquivos de código completos, modulares, limpos e 100% funcionais solicitados nesta tarefa.
 
 DIRETRIZES DE EXECUÇÃO:
-1. Respeite com precisão absoluta os CONTRATOS GLOBAIS e os ARQUIVOS DE DEPENDÊNCIA fornecidos no contexto.
+1. Respeite com precisão absoluta os CONTRATOS GLOBAIS, FATOS COMPARTILHADOS e os ARQUIVOS DE DEPENDÊNCIA fornecidos no contexto.
 2. Cada arquivo solicitado DEVE ser gerado em um bloco de código markdown delimitado por sua respectiva linguagem.
 3. Coloque na PRIMEIRA linha dentro do bloco de código o caminho relativo exato do arquivo no formato:
    // file: caminho/do/arquivo.ext   (ou # file: para python/yaml/bash)
 4. NÃO use reticências, NÃO use placeholders tipo "// TODO", gere a implementação COMPLETA e REAL do código.
-5. Não responda com comandos de terminal. Responda apenas com os blocos de código e breves explicações técnicas.`
+5. Se definir portas, endpoints, convenções ou dependências críticas que os próximos workers precisem saber, registre no final no formato:
+   [FACT:CONFIG:PORT] 8080
+   [FACT:DEP:NOME] versão ou instrução
+6. Não responda com comandos de terminal. Responda apenas com os blocos de código e breves explicações técnicas.`
 
 	if systemPrompt != "" {
 		sys = sys + "\n\n" + systemPrompt
@@ -211,6 +215,12 @@ DIRETRIZES DE EXECUÇÃO:
 	})
 	if err != nil {
 		return err
+	}
+
+	// Extract and record any shared facts declared by worker into shared memory (OverMemory)
+	discoveredFacts := extractFactsFromResponse(res.Text)
+	for _, df := range discoveredFacts {
+		bb.RecordFact(df.Category, df.Key, df.Value, fmt.Sprintf("Worker-%d", task.AssignedWorker))
 	}
 
 	// Parse generated code blocks
@@ -241,6 +251,32 @@ DIRETRIZES DE EXECUÇÃO:
 	return nil
 }
 
+var factDirectiveRegex = regexp.MustCompile(`(?i)\[FACT:(CONFIG|CONVENTION|DEP|RUNTIME|GENERAL):([A-Za-z0-9_.-]+)\]\s*(.+)`)
+
+type extractedFact struct {
+	Category memory.FactCategory
+	Key      string
+	Value    string
+}
+
+func extractFactsFromResponse(text string) []extractedFact {
+	var facts []extractedFact
+	matches := factDirectiveRegex.FindAllStringSubmatch(text, -1)
+	for _, m := range matches {
+		if len(m) > 3 {
+			cat := memory.FactCategory(strings.ToUpper(strings.TrimSpace(m[1])))
+			key := strings.TrimSpace(m[2])
+			val := strings.TrimSpace(m[3])
+			facts = append(facts, extractedFact{
+				Category: cat,
+				Key:      key,
+				Value:    val,
+			})
+		}
+	}
+	return facts
+}
+
 func extractFilesFromResponse(text string, expectedFiles []string) map[string]string {
 	result := make(map[string]string)
 	lines := strings.Split(text, "\n")
@@ -249,7 +285,7 @@ func extractFilesFromResponse(text string, expectedFiles []string) map[string]st
 	var currentBlock []string
 	inBlock := false
 
-	fileHeaderRegex := regexp.MustCompile(`^(?://|#)\s*(?:file:|path:)?\s*([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)`)
+	fileHeaderRegex := regexp.MustCompile(`^(?://|#|--|/\*)\s*(?:file:|path:)?\s*([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)`)
 	markdownHeaderPathRegex := regexp.MustCompile(`###\s+(?:` + "`" + `|\()?([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)`)
 
 	lastMarkdownHeader := ""
@@ -319,12 +355,26 @@ func extractFilesFromResponse(text string, expectedFiles []string) map[string]st
 	if len(result) == 0 && len(expectedFiles) == 1 && len(currentBlock) > 0 {
 		// Filter out pure markdown explanation
 		firstLine := strings.TrimSpace(currentBlock[0])
-		if !strings.HasPrefix(firstLine, "### Explica") && !strings.HasPrefix(firstLine, "1. **") {
+		if !strings.HasPrefix(firstLine, "### Explica") && !strings.HasPrefix(firstLine, "### Summary") && !strings.HasPrefix(firstLine, "1. **") {
 			result[expectedFiles[0]] = strings.Join(currentBlock, "\n")
 		}
 	}
 
-	return result
+	// Normalize extracted paths against expectedFiles (e.g., if worker omitted parent directories)
+	normalized := make(map[string]string)
+	for path, content := range result {
+		targetKey := cleanFilePath(path)
+		for _, exp := range expectedFiles {
+			cleanExp := cleanFilePath(exp)
+			if targetKey == cleanExp || filepath.Base(targetKey) == filepath.Base(cleanExp) {
+				targetKey = cleanExp
+				break
+			}
+		}
+		normalized[targetKey] = content
+	}
+
+	return normalized
 }
 
 func cleanFilePath(p string) string {

@@ -77,20 +77,20 @@ func DecomposePrompt(prompt string, maxParts int) (string, []SubTask) {
 			Focus string
 		}{
 			{
-				Title: "Arquitetura, Tipos e Estruturas de Dados",
-				Focus: "Desenvolva toda a arquitetura base, interfaces TypeScript, definições de tipos, contratos de API e modelos de dados necessários.",
+				Title: "Arquitetura, Modelos e Estruturas de Dados",
+				Focus: "Desenvolva toda a arquitetura base, definições de tipos, contratos, esquemas e modelos de dados fundamentais na linguagem e stack do projeto.",
 			},
 			{
-				Title: "Componentes Principais e Lógica de Negócio",
-				Focus: "Desenvolva os componentes centrais, lógica de estado, interações do usuário e manipuladores principais de eventos.",
+				Title: "Lógica Central, Serviços e Regras de Negócio",
+				Focus: "Desenvolva os componentes centrais, serviços internos, processamento de dados e regras de negócio da aplicação.",
 			},
 			{
-				Title: "Visualizações, Telemetria e Elementos de UI",
-				Focus: "Desenvolva gráficos, painéis de status, tabelas, terminais em tempo real e estilização completa com Tailwind CSS.",
+				Title: "Interface, Endpoints e Camada de Acesso",
+				Focus: "Desenvolva a camada de interação (endpoints de API, comandos CLI, handlers de protocolo ou interface de usuário se aplicável) conforme a natureza do projeto.",
 			},
 			{
-				Title: "Integração Final, Mocks e Utilitários",
-				Focus: "Desenvolva utilitários auxiliares, gerador de dados mock, integração da página e exportação executável do projeto.",
+				Title: "Integração Final, Testes e Utilitários",
+				Focus: "Desenvolva utilitários auxiliares, integração de módulos, scripts de execução e exportação executável do projeto.",
 			},
 		}
 

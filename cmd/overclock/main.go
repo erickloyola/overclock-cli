@@ -39,6 +39,8 @@ func printUsage() {
 USO:
   overclock create [FLAGS] "PROMPT"              Criação autônoma de projeto com DAG e Memória
   overclock resume [FLAGS] [PASTA]               Retoma um projeto interrompido a partir do estado salvo
+  overclock memory [COMANDO] [PASTA]             Inspeciona fatos, lições, histórico e rollback da memória
+  overclock mcp [--dir PASTA]                    Inicia o servidor MCP nativo (Model Context Protocol)
   overclock [FLAGS] "PROMPT"                     Modo Pipe/Direto (lê STDIN se disponível)
   overclock map [FLAGS] "PROMPT" [ARQUIVOS...]   Processa múltiplos arquivos em paralelo
   overclock lines [FLAGS] "PROMPT"               Processa STDIN linha a linha em paralelo
@@ -50,11 +52,12 @@ CRIAÇÃO DE PROJETOS MULTI-INSTÂNCIA:
   # Retomar um projeto interrompido exatamente de onde parou:
   overclock resume ./meu-app -j 8 -i
 
+  # Inspecionar fatos e lições aprendidas na memória de um projeto:
+  overclock memory facts ./meu-app
+  overclock memory history src/main.go ./meu-app
+
   # Dashboard completo com inspeção de contexto de um schema local:
   overclock create -j 8 --out-dir ./dashboard --context ./schema.sql "Crie um dashboard em React + Vite"
-
-  # Criar com rotação de múltiplas contas cadastradas:
-  overclock create -j 8 --out-dir ./projeto "Seu prompt complexo aqui"
 
 GERENCIAMENTO DE MÚLTIPLAS CONTAS:
   overclock accounts                             Lista todas as contas Google cadastradas
@@ -64,6 +67,7 @@ GERENCIAMENTO DE MÚLTIPLAS CONTAS:
 
 UTILITÁRIOS:
   overclock apply resultado.md --out-dir ./pasta Materializa markdown salvo em arquivos reais
+  overclock memory -h                            Ajuda do sistema de memória compartilhada
 
 FLAGS:
   -j, --jobs int           Número de workers concorrentes (padrão: 4, recomendado: 8)
@@ -267,6 +271,12 @@ func main() {
 			return
 		case "apply":
 			handleApply(args[1:])
+			return
+		case "memory":
+			handleMemory(args[1:])
+			return
+		case "mcp":
+			handleMCP(args[1:])
 			return
 		case "create":
 			mode = "create"
