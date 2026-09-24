@@ -30,3 +30,9 @@ coverage.txt
 # Sistema Operacional
 .DS_Store
 Thumbs.db
+
+# Worktrees e diretórios de teste temporários
+.worktrees/
+test-*/
+test-swarm-project/
+

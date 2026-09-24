@@ -18,6 +18,9 @@ const (
 	EventLessonRecorded EventType = "LESSON_RECORDED"
 	EventTaskUpdated    EventType = "TASK_UPDATED"
 	EventFileRollback   EventType = "FILE_ROLLBACK"
+	EventHandoffEmitted EventType = "HANDOFF_EMITTED"
+	EventGateEvaluated  EventType = "GATE_EVALUATED"
+	EventWorktreeMerged EventType = "WORKTREE_MERGED"
 )
 
 // MemoryEvent represents an immutable log entry in the project's event stream.

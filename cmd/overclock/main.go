@@ -75,6 +75,7 @@ FLAGS:
   -i, --install            Instala dependências automaticamente após a geração
       --verify             Testa o build com o compilador real e aciona auto-correção se falhar
       --git                Inicializa repositório Git no projeto gerado
+      --worktrees          Isola workers concorrentes em Git Worktrees dedicadas
       --context string     Arquivo ou schema local para injetar no planejamento
       --from string        Diretório de referência local para contexto
   -m, --model string       Modelo (padrão agy: gemini-3.8-flash-high | api: gemini-3.6-flash)
@@ -236,6 +237,7 @@ func main() {
 		flagInstall    bool
 		flagVerify     bool
 		flagGit        bool
+		flagWorktrees  bool
 		flagContext    string
 		flagFrom       string
 		flagSystem     string
@@ -309,6 +311,7 @@ func main() {
 	fs.BoolVar(&flagInstall, "i", false, "Instala automaticamente dependências após geração")
 	fs.BoolVar(&flagVerify, "verify", false, "Verifica o build com o compilador real e auto-corrige")
 	fs.BoolVar(&flagGit, "git", false, "Inicializa repositório Git")
+	fs.BoolVar(&flagWorktrees, "worktrees", false, "Isola workers concorrentes em Git Worktrees paralelas")
 	fs.StringVar(&flagContext, "context", "", "Arquivo ou schema local para contexto")
 	fs.StringVar(&flagFrom, "from", "", "Diretório de referência local para contexto")
 	fs.StringVar(&flagSystem, "s", "", "System instruction")
@@ -348,6 +351,7 @@ func main() {
 	cfg.Prune = flagPrune
 	cfg.PruneLevel = flagPruneLevel
 	cfg.Timeout = flagTimeout
+	cfg.UseWorktrees = flagWorktrees
 	cfg.Verbose = flagVerbose
 	cfg.OutDir = flagOutDir
 

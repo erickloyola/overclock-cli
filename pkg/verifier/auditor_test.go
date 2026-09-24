@@ -1,6 +1,7 @@
 package verifier
 
 import (
+	"strings"
 	"testing"
 
 	"overclock/pkg/memory"
@@ -90,3 +91,64 @@ func TestAuditBlueprintCycleBreakingAndDeadlockPrevention(t *testing.T) {
 		t.Errorf("Esperava que pelo menos uma tarefa ficasse desbloqueada para evitar deadlock")
 	}
 }
+
+func TestAuditBlueprintMandatoryTestSuiteCoverage(t *testing.T) {
+	bb := memory.NewBlackboard()
+	bb.SetManifest(memory.ProjectManifest{
+		Name:           "telemetry-app",
+		Stack:          "Go",
+		PackageManager: "go",
+	})
+
+	bb.RegisterTask(memory.TaskNode{
+		ID:          "task_1",
+		Title:       "Setup",
+		Stage:       1,
+		TargetFiles: []string{"go.mod"},
+	})
+
+	bb.RegisterTask(memory.TaskNode{
+		ID:          "task_2",
+		Title:       "Core Buffer",
+		Stage:       2,
+		TargetFiles: []string{"storage/buffer.go"},
+	})
+
+	report, err := AuditBlueprint(bb)
+	if err != nil {
+		t.Fatalf("AuditBlueprint falhou: %v", err)
+	}
+
+	// Verify that test suite task was auto-generated
+	hasTestTask := false
+	var testTask *memory.TaskNode
+	for _, task := range bb.GetAllTasks() {
+		for _, f := range task.TargetFiles {
+			if isTestFilePath(f) {
+				hasTestTask = true
+				testTask = task
+				break
+			}
+		}
+	}
+
+	if !hasTestTask {
+		t.Fatalf("Esperava que tarefa de testes fosse gerada automaticamente pelo Auditor")
+	}
+
+	if len(testTask.TargetFiles) == 0 || testTask.TargetFiles[0] != "storage/buffer_test.go" {
+		t.Errorf("Esperava target file 'storage/buffer_test.go', obteve: %v", testTask.TargetFiles)
+	}
+
+	foundPatchMsg := false
+	for _, p := range report.AutoPatchesApplied {
+		if strings.Contains(p, "testes unitários") || strings.Contains(p, "testes automatizados") {
+			foundPatchMsg = true
+			break
+		}
+	}
+	if !foundPatchMsg {
+		t.Errorf("Esperava registro de auto-patch de testes no relatório, obteve: %v", report.AutoPatchesApplied)
+	}
+}
+

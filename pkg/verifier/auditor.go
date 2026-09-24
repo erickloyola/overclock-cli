@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"overclock/pkg/memory"
@@ -199,11 +200,11 @@ func AuditBlueprint(bb *memory.Blackboard) (*AuditReport, error) {
 			fileSet["package.json"] = true
 			report.TotalFiles++
 		}
-	} else if strings.Contains(stackLower, "python") || pkgManager == "pip" {
+	} else if strings.Contains(stackLower, "python") || pkgManager == "pip" || pkgManager == "uv" || pkgManager == "poetry" {
 		if !fileSet["requirements.txt"] && !fileSet["pyproject.toml"] {
-			report.AutoPatchesApplied = append(report.AutoPatchesApplied, "Adicionado 'requirements.txt' à Tarefa de Fundação")
-			addFileToFirstStageTask(tasks, "requirements.txt")
-			fileSet["requirements.txt"] = true
+			report.AutoPatchesApplied = append(report.AutoPatchesApplied, "Adicionado 'pyproject.toml' à Tarefa de Fundação")
+			addFileToFirstStageTask(tasks, "pyproject.toml")
+			fileSet["pyproject.toml"] = true
 			report.TotalFiles++
 		}
 	} else if strings.Contains(stackLower, "rust") || pkgManager == "cargo" {
@@ -222,6 +223,9 @@ func AuditBlueprint(bb *memory.Blackboard) (*AuditReport, error) {
 		fileSet["README.md"] = true
 		report.TotalFiles++
 	}
+
+	// 7. Ensure Test Suite Coverage for Core Modules (Stage 2/3)
+	ensureTestSuiteCoverage(bb, tasks, report, fileSet)
 
 	return report, nil
 }
@@ -253,4 +257,138 @@ func addFileToLastStageTask(tasks []*memory.TaskNode, filename string) {
 	} else if len(tasks) > 0 {
 		tasks[len(tasks)-1].TargetFiles = append(tasks[len(tasks)-1].TargetFiles, filename)
 	}
+}
+
+func isTestFilePath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "_test.go") ||
+		strings.Contains(lower, ".test.ts") ||
+		strings.Contains(lower, ".spec.ts") ||
+		strings.Contains(lower, ".test.js") ||
+		strings.Contains(lower, ".spec.js") ||
+		strings.Contains(lower, "_test.py") ||
+		strings.HasPrefix(filepath.Base(lower), "test_") ||
+		strings.Contains(lower, "/tests/") ||
+		strings.HasSuffix(lower, "_test.rs")
+}
+
+func ensureTestSuiteCoverage(
+	bb *memory.Blackboard,
+	tasks []*memory.TaskNode,
+	report *AuditReport,
+	fileSet map[string]bool,
+) {
+	// Check if test files are already scheduled anywhere in the blueprint
+	for f := range fileSet {
+		if isTestFilePath(f) {
+			return
+		}
+	}
+
+	manifest := bb.GetManifest()
+	stackLower := strings.ToLower(manifest.Stack)
+
+	// Identify candidate domain/core files from Stage 2 (or Stage 1/3)
+	var candidates []string
+	var producerIDs []string
+	for _, t := range tasks {
+		if t.Stage == 2 || (t.Stage == 3 && len(candidates) == 0) {
+			for _, f := range t.TargetFiles {
+				base := strings.ToLower(filepath.Base(f))
+				if strings.Contains(base, "main") || strings.Contains(base, "mod") ||
+					strings.Contains(base, "config") || strings.Contains(base, "readme") ||
+					strings.Contains(base, "package.json") {
+					continue
+				}
+				candidates = append(candidates, f)
+				producerIDs = append(producerIDs, t.ID)
+			}
+		}
+	}
+
+	var testFiles []string
+	switch {
+	case strings.Contains(stackLower, "go"):
+		if len(candidates) > 0 {
+			for i, c := range candidates {
+				if i >= 2 {
+					break
+				}
+				ext := filepath.Ext(c)
+				if ext == ".go" {
+					testFiles = append(testFiles, strings.TrimSuffix(c, ".go")+"_test.go")
+				}
+			}
+		}
+		if len(testFiles) == 0 {
+			testFiles = []string{"pkg/core_test.go"}
+		}
+
+	case strings.Contains(stackLower, "react") || strings.Contains(stackLower, "node") ||
+		strings.Contains(stackLower, "vite") || strings.Contains(stackLower, "ts") ||
+		strings.Contains(stackLower, "typescript"):
+		if len(candidates) > 0 {
+			for i, c := range candidates {
+				if i >= 2 {
+					break
+				}
+				ext := filepath.Ext(c)
+				if ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" {
+					testFiles = append(testFiles, strings.TrimSuffix(c, ext)+".test"+ext)
+				}
+			}
+		}
+		if len(testFiles) == 0 {
+			testFiles = []string{"src/app.test.ts"}
+		}
+
+	case strings.Contains(stackLower, "python"):
+		if len(candidates) > 0 {
+			for i, c := range candidates {
+				if i >= 2 {
+					break
+				}
+				dir := filepath.Dir(c)
+				base := filepath.Base(c)
+				testFiles = append(testFiles, filepath.Join(dir, "test_"+base))
+			}
+		}
+		if len(testFiles) == 0 {
+			testFiles = []string{"tests/test_main.py"}
+		}
+
+	case strings.Contains(stackLower, "rust"):
+		testFiles = []string{"tests/unit_test.rs"}
+
+	default:
+		testFiles = []string{"tests/unit_test.txt"}
+	}
+
+	// Determine final stage
+	highestStage := 1
+	for _, t := range tasks {
+		if t.Stage > highestStage {
+			highestStage = t.Stage
+		}
+	}
+
+	testTask := memory.TaskNode{
+		ID:          fmt.Sprintf("task_tests_auto_%d", len(tasks)+1),
+		Title:       "Implementação da Suíte de Testes Automatizados",
+		Stage:       highestStage,
+		TargetFiles: testFiles,
+		DependsOn:   producerIDs,
+		Spec: fmt.Sprintf("Implemente a suíte completa de testes unitários automatizados cobrindo os módulos: %s. Valide cenários de sucesso, limites, erros e concorrência.",
+			strings.Join(testFiles, ", ")),
+		Status: memory.StatusPending,
+	}
+
+	bb.RegisterTask(testTask)
+	for _, tf := range testFiles {
+		fileSet[tf] = true
+	}
+	report.TotalFiles += len(testFiles)
+	report.TotalTasks++
+	report.AutoPatchesApplied = append(report.AutoPatchesApplied,
+		fmt.Sprintf("Adicionada tarefa obrigatória de testes unitários (%s) para: %s", testTask.ID, strings.Join(testFiles, ", ")))
 }

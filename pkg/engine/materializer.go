@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -175,35 +176,32 @@ func ExecuteLifecycleHooks(
 
 		if buildCommand != "" {
 			term.LogInfo("🔍 Verificando integridade de build do projeto com '%s'...", buildCommand)
-			parts := strings.Fields(buildCommand)
-			if len(parts) > 0 {
-				out, err := runLocalCmd(ctx, outDir, parts[0], parts[1:]...)
-				if err == nil {
-					term.LogInfo("✅ Build verificado e aprovado com sucesso pelo compilador real do sistema!")
-				} else {
-					term.LogWarn("⚠️ O compilador acusou divergência no build. Acionando ciclo de auto-correção...")
-					term.LogInfo("Erro do compilador:\n%s", truncate(out, 600))
+			out, err := runShellCmd(ctx, outDir, buildCommand)
+			if err == nil {
+				term.LogInfo("✅ Build verificado e aprovado com sucesso pelo compilador real do sistema!")
+			} else {
+				term.LogWarn("⚠️ O compilador acusou divergência no build. Acionando ciclo de auto-correção...")
+				term.LogInfo("Erro do compilador:\n%s", truncate(out, 600))
 
-					// Try to locate error file from output
-					errFile := findOffendingFile(out, bb.GetAllFiles())
-					bb.RecordLesson("compiler", truncate(out, 300), "Ajuste os imports e assinaturas reportados pelo compilador", errFile)
+				// Try to locate error file from output
+				errFile := findOffendingFile(out, bb.GetAllFiles())
+				bb.RecordLesson("compiler", truncate(out, 300), "Ajuste os imports e assinaturas reportados pelo compilador", errFile)
 
-					if errFile != "" {
-						term.LogInfo("🔧 Supervisor aplicando patch cirúrgico em %s...", errFile)
-						patchErr := supervisor.AutoPatchFile(ctx, runner, bb, errFile, out, model)
-						if patchErr == nil {
-							// Rewrite patched file
-							if fArt, ok := bb.GetFile(errFile); ok {
-								_ = os.WriteFile(filepath.Join(outDir, errFile), []byte(fArt.Content), 0644)
-								term.LogInfo("🔄 Re-testando build após patch...")
-								outRetry, errRetry := runLocalCmd(ctx, outDir, parts[0], parts[1:]...)
-								if errRetry == nil {
-									term.LogInfo("✅ Build aprovado com sucesso após auto-correção!")
-									bb.RecordFact(memory.FactCategoryRuntime, "build_status", "verified", "Compiler")
-									bb.RecordLesson("compiler-fix", "Divergência de compilação resolvida com sucesso", fmt.Sprintf("Arquivo %s aprovado no rebuild", errFile), errFile)
-								} else {
-									term.LogWarn("⚠️ Build ainda reporta avisos após auto-correção: %s", truncate(outRetry, 300))
-								}
+				if errFile != "" {
+					term.LogInfo("🔧 Supervisor aplicando patch cirúrgico em %s...", errFile)
+					patchErr := supervisor.AutoPatchFile(ctx, runner, bb, errFile, out, model)
+					if patchErr == nil {
+						// Rewrite patched file
+						if fArt, ok := bb.GetFile(errFile); ok {
+							_ = os.WriteFile(filepath.Join(outDir, errFile), []byte(fArt.Content), 0644)
+							term.LogInfo("🔄 Re-testando build após patch...")
+							outRetry, errRetry := runShellCmd(ctx, outDir, buildCommand)
+							if errRetry == nil {
+								term.LogInfo("✅ Build aprovado com sucesso após auto-correção!")
+								bb.RecordFact(memory.FactCategoryRuntime, "build_status", "verified", "Compiler")
+								bb.RecordLesson("compiler-fix", "Divergência de compilação resolvida com sucesso", fmt.Sprintf("Arquivo %s aprovado no rebuild", errFile), errFile)
+							} else {
+								term.LogWarn("⚠️ Build ainda reporta avisos após auto-correção: %s", truncate(outRetry, 300))
 							}
 						}
 					}
@@ -230,6 +228,21 @@ func runLocalCmd(ctx context.Context, dir, name string, args ...string) (string,
 	return strings.TrimSpace(outBuf.String()), err
 }
 
+func runShellCmd(ctx context.Context, dir, command string) (string, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+	cmd.Dir = dir
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	err := cmd.Run()
+	return strings.TrimSpace(outBuf.String()), err
+}
+
 func findOffendingFile(compilerOutput string, files []*memory.FileArtifact) string {
 	for _, f := range files {
 		base := filepath.Base(f.Path)
@@ -239,3 +252,11 @@ func findOffendingFile(compilerOutput string, files []*memory.FileArtifact) stri
 	}
 	return ""
 }
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+

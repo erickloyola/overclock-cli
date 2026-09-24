@@ -93,6 +93,17 @@ func ReviewProject(bb *memory.Blackboard) *SupervisionReport {
 					filepath.Join(resolved, "index.tsx"),
 				}
 
+				// If import ended in .js or .jsx (ESM NodeNext convention), also check corresponding .ts and .tsx files
+				if strings.HasSuffix(resolved, ".js") || strings.HasSuffix(resolved, ".jsx") {
+					base := strings.TrimSuffix(strings.TrimSuffix(resolved, ".jsx"), ".js")
+					candidates = append(candidates,
+						base+".ts",
+						base+".tsx",
+						filepath.Join(base, "index.ts"),
+						filepath.Join(base, "index.tsx"),
+					)
+				}
+
 				found := false
 				for _, c := range candidates {
 					if _, ok := fileIndex[cleanPath(c)]; ok {
@@ -188,17 +199,33 @@ Sua missão é corrigir um arquivo específico do projeto mantendo total compati
 Responda EXCLUSIVAMENTE com o código final corrigido do arquivo, sem blocos de texto externos.`
 
 	contracts := bb.ContractsSummary()
+	manifest := bb.GetManifest()
+	var ctxBuilder strings.Builder
+	ctxBuilder.WriteString(fmt.Sprintf("[MANIFESTO DO PROJETO]\nNome: %s | Stack: %s | Gerenciador: %s\n",
+		manifest.Name, manifest.Stack, manifest.PackageManager))
+	if len(manifest.Conventions) > 0 {
+		ctxBuilder.WriteString("Convenções do Projeto:\n")
+		for _, c := range manifest.Conventions {
+			ctxBuilder.WriteString(fmt.Sprintf("• %s\n", c))
+		}
+	}
+	ctxBuilder.WriteString("\n[ARQUIVOS REGISTRADOS NO PROJETO]\n")
+	for _, f := range bb.GetAllFiles() {
+		ctxBuilder.WriteString(fmt.Sprintf("• %s\n", f.Path))
+	}
+	ctxBuilder.WriteString("\n")
+
 	prompt := fmt.Sprintf(`[PROBLEMA DETECTADO PELO SUPERVISOR]
 Arquivo: %s
 Problema: %s
 
 %s
-
+%s
 [CÓDIGO ATUAL DO ARQUIVO]
 %s
 
-Instrução: Reescreva o arquivo completo %s sanando totalmente o problema detectado.`,
-		filePath, issueDescription, contracts, fileArt.Content, filePath)
+Instrução: Reescreva o arquivo completo %s sanando totalmente o problema detectado respeitando a stack e convenções.`,
+		filePath, issueDescription, ctxBuilder.String(), contracts, fileArt.Content, filePath)
 
 	res, err := runner.Execute(ctx, client.RequestOptions{
 		Model:        model,

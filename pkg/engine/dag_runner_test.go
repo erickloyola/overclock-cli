@@ -1,7 +1,12 @@
 package engine
 
 import (
+	"context"
 	"testing"
+
+	"overclock/pkg/client"
+	"overclock/pkg/memory"
+	"overclock/pkg/ui"
 )
 
 func TestExtractFilesFromResponse_UnfencedStart(t *testing.T) {
@@ -43,3 +48,58 @@ func indexOf(s, substr string) int {
 	}
 	return -1
 }
+
+type mockRunner struct{}
+
+func (m *mockRunner) Execute(ctx context.Context, opts client.RequestOptions) (*client.ExecutionResult, error) {
+	// Return a valid code block with a fact
+	return &client.ExecutionResult{
+		Text: "```go\n// file: main.go\npackage main\n\nfunc main() {}\n```\n[FACT:CONFIG:PORT] 8080\n",
+	}, nil
+}
+
+func (m *mockRunner) Name() string {
+	return "Mock Runner"
+}
+
+func TestRunDAGWithOptions_EventDrivenAndGates(t *testing.T) {
+	bb := memory.NewBlackboard()
+	bb.SetManifest(memory.ProjectManifest{
+		Name:  "MockApp",
+		Stack: "Go",
+	})
+	bb.RegisterTask(memory.TaskNode{
+		ID:          "task_stage1",
+		Title:       "Stage 1 Setup",
+		Stage:       1,
+		TargetFiles: []string{"main.go"},
+		Status:      memory.StatusPending,
+	})
+
+	term := ui.NewTerminal(false, false)
+	opts := DAGOptions{
+		Concurrency:  2,
+		UseWorktrees: false,
+	}
+
+	err := RunDAGWithOptions(context.Background(), &mockRunner{}, bb, t.TempDir(), opts, term)
+	if err != nil {
+		t.Fatalf("RunDAGWithOptions falhou: %v", err)
+	}
+
+	task, ok := bb.GetTask("task_stage1")
+	if !ok || task.Status != memory.StatusCompleted {
+		t.Errorf("Esperava tarefa completada, obteve: %+v", task)
+	}
+
+	file, ok := bb.GetFile("main.go")
+	if !ok || !contains(file.Content, "package main") {
+		t.Errorf("Arquivo gerado não foi registrado corretamente no blackboard")
+	}
+
+	fact, ok := bb.GetFact("port")
+	if !ok || fact.Value != "8080" {
+		t.Errorf("Fato compartilhado não foi registrado: %+v", fact)
+	}
+}
+

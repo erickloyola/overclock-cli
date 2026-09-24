@@ -26,6 +26,7 @@ type Config struct {
 	Temperature float64
 	Verbose     bool
 	OutDir      string
+	UseWorktrees bool
 }
 
 // DefaultConfig returns optimal production defaults.

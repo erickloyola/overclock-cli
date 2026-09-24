@@ -41,9 +41,9 @@ func InspectSystem(ctx context.Context) *SystemEnvironment {
 	}
 
 	toolNames := []string{
+		"go", "cargo", "rustc", "python3", "python", "uv",
+		"make", "docker", "git",
 		"bun", "pnpm", "yarn", "npm", "node",
-		"go", "cargo", "rustc", "python3", "python",
-		"uv", "docker", "git", "make",
 	}
 
 	for _, name := range toolNames {
@@ -51,15 +51,7 @@ func InspectSystem(ctx context.Context) *SystemEnvironment {
 		env.Tools[name] = info
 	}
 
-	// Recommendations by ecosystem
-	if env.Tools["bun"].Available {
-		env.Recommended["javascript_typescript"] = "bun"
-	} else if env.Tools["pnpm"].Available {
-		env.Recommended["javascript_typescript"] = "node + pnpm"
-	} else if env.Tools["npm"].Available {
-		env.Recommended["javascript_typescript"] = "node + npm"
-	}
-
+	// Recommendations by ecosystem - compiled and native runtimes first
 	if env.Tools["go"].Available {
 		env.Recommended["go"] = fmt.Sprintf("go (%s)", env.Tools["go"].Version)
 	}
@@ -73,6 +65,14 @@ func InspectSystem(ctx context.Context) *SystemEnvironment {
 	}
 	if env.Tools["docker"].Available {
 		env.Recommended["containers"] = "docker"
+	}
+
+	if env.Tools["bun"].Available {
+		env.Recommended["javascript_typescript"] = "bun"
+	} else if env.Tools["pnpm"].Available {
+		env.Recommended["javascript_typescript"] = "node + pnpm"
+	} else if env.Tools["npm"].Available {
+		env.Recommended["javascript_typescript"] = "node + npm"
 	}
 
 	return env
@@ -126,7 +126,7 @@ func (env *SystemEnvironment) SummaryString() string {
 		for k, v := range env.Recommended {
 			sb.WriteString(fmt.Sprintf("• %s: %s\n", k, v))
 		}
-		sb.WriteString("DIRETRIZ: Selecione a linguagem, runtime e ferramentas de forma autônoma e estritamente adequada ao domínio do projeto solicitado, sem favorecer nenhuma stack pré-concebida.\n")
+		sb.WriteString("DIRETRIZ ARQUITETURAL: Escolha a stack de melhor engenharia para o tipo de software solicitado (ex: Go/Rust para CLI/daemons/APIs de alta performance; Python para dados/IA/automação; Web apenas se solicitado interface gráfica no navegador).\n")
 	}
 
 	return sb.String()

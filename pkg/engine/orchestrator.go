@@ -88,7 +88,7 @@ func (o *Orchestrator) RunCreateProject(
 
 	// 3. Stage 1: Architect & Planner
 	o.term.LogInfo("📐 [Instância 1: Arquiteto] Desenhando blueprint de software e contratos globais...")
-	bb, err := planner.PlanProject(ctx, o.runner, prompt, env.SummaryString(), contextData, o.cfg.Model)
+	bb, err := planner.PlanProject(ctx, o.runner, prompt, env.SummaryString(), contextData, o.cfg.Model, o.cfg.Concurrency)
 	if err != nil {
 		return fmt.Errorf("falha no Arquiteto: %w", err)
 	}
@@ -120,12 +120,28 @@ func (o *Orchestrator) RunCreateProject(
 	o.term.LogInfo("✅ Plano validado: %d tarefas | %d arquivos | Paralelismo máximo do DAG: %d workers",
 		auditRep.TotalTasks, auditRep.TotalFiles, auditRep.MaxConcurrency)
 
+	// Validation Gate 1: Blueprint & Contracts Specification Gate
+	o.term.LogInfo("🚪 [Validation Gate 1] Avaliando especificações de contratos e consistência do blueprint...")
+	gate1 := EvaluateContractSpecGate(bb)
+	_ = memory.AppendEvent(outDir, memory.EventGateEvaluated, gate1)
+	if !gate1.Passed {
+		return fmt.Errorf("Gate 1 (Especificação/Contrato) reprovado: %s", strings.Join(gate1.Errors, "; "))
+	}
+	o.term.LogInfo("✅ [GATE 1 GREEN] %s", gate1.Summary)
+
 	// Persist initial blueprint immediately so no planning work is lost
 	_ = bb.SaveState(outDir)
 
-	// 5. Stage 3: DAG Concurrent Execution with Shared Memory
-	o.term.LogInfo("⚡ [Workers de Execução] Disparando workers concorrentes com memória compartilhada...")
-	if err := RunDAG(ctx, o.runner, bb, outDir, o.cfg.Concurrency, o.accounts, o.cfg.Model, o.cfg.SystemPrompt, o.term); err != nil {
+	// 5. Stage 3: DAG Concurrent Execution with Shared Memory & Reactive Event-Driven Handoff
+	o.term.LogInfo("⚡ [Workers de Execução] Disparando workers concorrentes com handoff orientado a eventos...")
+	dagOpts := DAGOptions{
+		Concurrency:  o.cfg.Concurrency,
+		Accounts:     o.accounts,
+		Model:        o.cfg.Model,
+		SystemPrompt: o.cfg.SystemPrompt,
+		UseWorktrees: o.cfg.UseWorktrees,
+	}
+	if err := RunDAGWithOptions(ctx, o.runner, bb, outDir, dagOpts, o.term); err != nil {
 		o.term.LogInfo("💡 Dica: Para continuar de onde parou após ajustar o problema, execute: overclock resume %s", outDir)
 		return fmt.Errorf("falha durante execução do DAG: %w", err)
 	}
@@ -158,6 +174,16 @@ func (o *Orchestrator) RunCreateProject(
 				o.term.LogInfo("✅ Patch aplicado com sucesso em %s", file)
 			}
 		}
+	}
+
+	// Validation Gate 3: Integration & QA Gate
+	o.term.LogInfo("🚪 [Validation Gate 3] Validando auditoria de integração e consistência global...")
+	gate3 := EvaluateIntegrationGate(bb)
+	_ = memory.AppendEvent(outDir, memory.EventGateEvaluated, gate3)
+	if !gate3.Passed {
+		o.term.LogWarn("⚠️ [GATE 3 WARN] Inconsistências remanescentes no projeto: %s", strings.Join(gate3.Errors, "; "))
+	} else {
+		o.term.LogInfo("✅ [GATE 3 GREEN] %s", gate3.Summary)
 	}
 
 	// 7. Materialize Files to Disk
@@ -537,7 +563,14 @@ func (o *Orchestrator) RunResumeProject(
 
 	if totalToRun > 0 {
 		o.term.LogInfo("⚡ [Workers de Execução] Disparando workers concorrentes para finalizar tarefas restantes...")
-		if err := RunDAG(ctx, o.runner, bb, projectDir, o.cfg.Concurrency, o.accounts, o.cfg.Model, o.cfg.SystemPrompt, o.term); err != nil {
+		dagOpts := DAGOptions{
+			Concurrency:  o.cfg.Concurrency,
+			Accounts:     o.accounts,
+			Model:        o.cfg.Model,
+			SystemPrompt: o.cfg.SystemPrompt,
+			UseWorktrees: o.cfg.UseWorktrees,
+		}
+		if err := RunDAGWithOptions(ctx, o.runner, bb, projectDir, dagOpts, o.term); err != nil {
 			o.term.LogInfo("💡 Dica: Para tentar novamente de onde parou, execute: overclock resume %s", projectDir)
 			return fmt.Errorf("falha durante retomada do DAG: %w", err)
 		}
@@ -608,12 +641,21 @@ func (o *Orchestrator) RunResumeProject(
 	runCmd := manifest.RunCommand
 	if runCmd == "" {
 		pm := strings.ToLower(manifest.PackageManager)
-		if pm == "bun" {
-			runCmd = "bun dev"
-		} else if pm == "go" {
+		switch pm {
+		case "go":
 			runCmd = "go run ."
-		} else {
+		case "cargo":
+			runCmd = "cargo run"
+		case "pip", "python", "poetry", "uv":
+			runCmd = "python3 main.py"
+		case "make":
+			runCmd = "make run"
+		case "bun":
+			runCmd = "bun dev"
+		case "npm", "pnpm", "yarn":
 			runCmd = "npm run dev"
+		default:
+			runCmd = "./run.sh"
 		}
 	}
 	fmt.Printf("\n " + ui.Bold + "🚀 Para rodar o projeto agora:" + ui.Reset + "\n")

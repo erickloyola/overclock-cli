@@ -32,6 +32,16 @@ As instâncias do `agy` são isoladas, mas o processo Go do Overclock atua como 
 - `--verify`: Executa o compilador real do sistema (`go build`, `npm run build`, `cargo check`). Se o compilador reportar um erro, o Overclock captura a saída do terminal e aciona o **Supervisor de Auto-Correção** para ajustar o arquivo com defeito!
 - `--git`: Inicializa o repositório Git e realiza o primeiro commit automaticamente.
 
+### 5. 🎼 Orquestração Multi-Agente Avançada (Maestro Protocol)
+- **Event-Driven Handoff (Zero Polling):** Sem laços de espera ativa gastando CPU ou tokens (`sleep 100ms`). O Maestro desperta instantaneamente e de forma reativa no recebimento de canais de eventos dos workers.
+- **Validation Gates (Portões de Validação Estritos):**
+  - **Gate 1 (Blueprint & Contratos):** Garante especificação e grafo acíclico antes de instanciar workers.
+  - **Gate 2 (Estágio & Validação Unitária):** Audita integridade e sintaxe de cada lote gerado. O próximo estágio só é instanciado se o Gate correspondente estiver verde (GREEN).
+  - **Gate 3 (Integração & Consistência Global):** Valida imports cruzados e elimina divergências antes da entrega final.
+- **Topologia Hub-and-Spoke & Clean Context Injection:** Filtro redacional central que descarta monólogos internos (`<thinking>`) e comandos de terminal falhos, injetando apenas contratos e interfaces limpas nos workers downstream.
+- **Ciclo de Vida Efêmero (Auto-Teardown):** Workers encerram imediatamente após o handoff, liberando instâncias, semáforos e buffers.
+- **Isolamento de Código via Git Worktrees (`--worktrees`):** Workers paralelos operam em branches e worktrees físicas isoladas (`.worktrees/task-*`), eliminando colisões de arquivo e *race conditions* no disco antes do merge final pelo Maestro.
+
 ---
 
 ## 📁 Estrutura do Projeto

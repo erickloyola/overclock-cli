@@ -125,8 +125,18 @@ func detectFilePath(header string, blockLines []string, lang string, index int) 
 	}
 
 	// 3. Fallback based on language and index
-	ext := ".ts"
+	ext := ""
 	switch lang {
+	case "go", "golang":
+		ext = ".go"
+	case "python", "py":
+		ext = ".py"
+	case "rust", "rs":
+		ext = ".rs"
+	case "c":
+		ext = ".c"
+	case "cpp", "c++":
+		ext = ".cpp"
 	case "typescript", "ts":
 		ext = ".ts"
 	case "tsx":
@@ -144,10 +154,6 @@ func detectFilePath(header string, blockLines []string, lang string, index int) 
 			return "index.html"
 		}
 		return fmt.Sprintf("page_%d.html", index)
-	case "go":
-		ext = ".go"
-	case "python", "py":
-		ext = ".py"
 	default:
 		return ""
 	}

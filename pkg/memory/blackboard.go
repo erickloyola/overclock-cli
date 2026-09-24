@@ -27,6 +27,7 @@ const (
 type ProjectManifest struct {
 	Name           string   `json:"name"`
 	Description    string   `json:"description"`
+	TechDecision   string   `json:"tech_decision,omitempty"` // Justificativa técnica da escolha da stack
 	Stack          string   `json:"stack"`
 	PackageManager string   `json:"package_manager"` // bun, pnpm, npm, go, cargo, pip, etc.
 	RunCommand     string   `json:"run_command"`     // e.g. "bun dev", "go run .", "python main.py"
@@ -566,8 +567,12 @@ func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 
 	// 1. Project Manifest
 	sb.WriteString("[MANIFESTO DO PROJETO]\n")
-	sb.WriteString(fmt.Sprintf("Nome: %s\nStack: %s\nGerenciador: %s\nComando Execução: %s\n\n",
+	sb.WriteString(fmt.Sprintf("Nome: %s\nStack: %s\nGerenciador: %s\nComando Execução: %s\n",
 		b.Manifest.Name, b.Manifest.Stack, b.Manifest.PackageManager, b.Manifest.RunCommand))
+	if b.Manifest.TechDecision != "" {
+		sb.WriteString(fmt.Sprintf("Decisão Arquitetural / Justificativa: %s\n", b.Manifest.TechDecision))
+	}
+	sb.WriteString("\n")
 
 	if len(b.Manifest.Conventions) > 0 {
 		sb.WriteString("Convenções do Projeto:\n")
@@ -609,7 +614,7 @@ func (b *Blackboard) BuildWorkerContext(task *TaskNode) string {
 
 	// 5. Foundation Configs & Package Manifests (if already generated in Stage 1)
 	var foundationConfigs []string
-	for _, confName := range []string{"go.mod", "Cargo.toml", "requirements.txt", "package.json", "Makefile", "pyproject.toml", "CMakeLists.txt"} {
+	for _, confName := range []string{"go.mod", "Cargo.toml", "requirements.txt", "package.json", "tsconfig.json", "Makefile", "pyproject.toml", "CMakeLists.txt"} {
 		if fArt, ok := b.Files[confName]; ok {
 			foundationConfigs = append(foundationConfigs, fmt.Sprintf("--- %s (Manifesto da Stack) ---\n%s\n", confName, strings.TrimSpace(fArt.Content)))
 		}
