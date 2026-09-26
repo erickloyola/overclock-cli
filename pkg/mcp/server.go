@@ -8,7 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
+	"overclock/pkg/engine"
+	"overclock/pkg/hub"
+	"overclock/pkg/hyprland"
 	"overclock/pkg/memory"
 )
 
@@ -41,12 +46,17 @@ type ToolDefinition struct {
 	InputSchema interface{} `json:"inputSchema"`
 }
 
-// Server is the Model Context Protocol server exposing Overclock memory.
+// Server is the Model Context Protocol server exposing Overclock memory and Hyprland cockpit panes.
 type Server struct {
-	projectDir string
-	bb         *memory.Blackboard
-	stdin      io.Reader
-	stdout     io.Writer
+	projectDir  string
+	bb          *memory.Blackboard
+	stdin       io.Reader
+	stdout      io.Writer
+	hub         *hub.Hub
+	hyprland    *hyprland.Controller
+	worktreeMgr *engine.WorktreeManager
+	worktrees   map[string]*engine.Worktree
+	mu          sync.Mutex
 }
 
 // NewServer creates an MCP server bound to a specific project directory.
@@ -72,11 +82,53 @@ func NewServer(projectDir string, stdin io.Reader, stdout io.Writer) *Server {
 		bb:         bb,
 		stdin:      stdin,
 		stdout:     stdout,
+		hyprland:   hyprland.NewController(),
+		worktrees:  make(map[string]*engine.Worktree),
 	}
+}
+
+// Close releases resources held by the MCP server (Hub socket, worktrees).
+func (s *Server) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hub != nil {
+		_ = s.hub.Close()
+	}
+	if s.hyprland != nil {
+		_ = s.hyprland.SetLayout("scrolling")
+	}
+}
+
+func (s *Server) ensureHub() (*hub.Hub, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hub == nil {
+		h := hub.NewHub()
+		if err := h.Start(); err != nil {
+			return nil, err
+		}
+		s.hub = h
+	}
+	return s.hub, nil
+}
+
+func (s *Server) ensureWorktreeMgr() (*engine.WorktreeManager, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.worktreeMgr == nil {
+		wm, err := engine.NewWorktreeManager(s.projectDir)
+		if err != nil {
+			return nil, err
+		}
+		s.worktreeMgr = wm
+	}
+	return s.worktreeMgr, nil
 }
 
 // Serve runs the JSON-RPC stdio loop.
 func (s *Server) Serve() error {
+	defer s.Close()
+
 	scanner := bufio.NewScanner(s.stdin)
 	// Allow large messages up to 10MB
 	buf := make([]byte, 1024*1024)
@@ -137,6 +189,7 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 
 func (s *Server) getToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
+		// Memory & Blackboard Tools
 		{
 			Name:        "mcp__overclock__memory_read",
 			Description: "Lê um fato compartilhado, arquivo, contrato ou lição da memória do Overclock",
@@ -207,6 +260,151 @@ func (s *Server) getToolDefinitions() []ToolDefinition {
 		{
 			Name:        "mcp__overclock__get_status",
 			Description: "Retorna o status geral do projeto, manifesto, arquivos e tarefas do DAG",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+			},
+		},
+
+		// Hyprland Cockpit & Multi-Pane Orchestration Tools
+		{
+			Name:        "mcp__overclock__pane_spawn",
+			Description: "Dispara uma nova janela de terminal no Hyprland (ex: Kitty) isolada em uma Git Worktree dedicada para executar uma tarefa em paralelo (Maestro Framework)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type":        "string",
+						"description": "Identificador único da tarefa/worker (ex: worker-backend, feat-auth)",
+					},
+					"task": map[string]string{
+						"type":        "string",
+						"description": "Descrição e objetivo direto da tarefa (Clean Context)",
+					},
+					"role": map[string]string{
+						"type":        "string",
+						"description": "Papel do agente especialista (ex: Backend Go Developer)",
+					},
+					"contracts": map[string]string{
+						"type":        "string",
+						"description": "Especificação formal de tipos, structs e contratos de API (Gate 1)",
+					},
+					"preset": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"agy", "claude", "gemini", "bash", "overclock-ui"},
+						"description": "Preset do agente local (padrão: agy)",
+					},
+					"terminal": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"kitty", "foot", "alacritty", "ghostty"},
+						"description": "Emulador de terminal preferido (padrão: kitty)",
+					},
+					"workspace": map[string]interface{}{
+						"type":        "string",
+						"description": "ID ou nome do workspace do Hyprland onde abrir o pane (padrão: mesmo workspace do Maestro)",
+					},
+					"silent": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Se verdadeiro, abre o pane em segundo plano sem mudar o foco da tela (padrão: false)",
+					},
+					"use_worktree": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Se deve provisionar uma Git Worktree isolada em .worktrees/ (padrão: true)",
+					},
+				},
+				"required": []string{"name", "task"},
+			},
+		},
+		{
+			Name:        "mcp__overclock__pane_wait",
+			Description: "Aguarda de forma reativa por evento (Zero Polling) a conclusão e submissão de handoff de um worker no Hyprland",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type":        "string",
+						"description": "Identificador do worker a aguardar",
+					},
+					"timeout_seconds": map[string]interface{}{
+						"type":        "number",
+						"description": "Timeout limite em segundos (padrão: 300)",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "mcp__overclock__pane_write",
+			Description: "Envia uma mensagem ou instrução complementar para um worker conectado via IPC Socket",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type":        "string",
+						"description": "Identificador do worker",
+					},
+					"message": map[string]string{
+						"type":        "string",
+						"description": "Mensagem ou instrução a ser enviada",
+					},
+				},
+				"required": []string{"name", "message"},
+			},
+		},
+		{
+			Name:        "mcp__overclock__handoff_submit",
+			Description: "Submete o relatório formal de handoff de uma tarefa concluída",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type":        "string",
+						"description": "Identificador do worker",
+					},
+					"status": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"PASS", "FAIL"},
+						"description": "Status de conclusão dos testes e critérios",
+					},
+					"artifacts": map[string]interface{}{
+						"type": "array",
+						"items": map[string]string{
+							"type": "string",
+						},
+						"description": "Lista dos caminhos dos arquivos produzidos ou modificados",
+					},
+					"notes": map[string]string{
+						"type":        "string",
+						"description": "Notas e resumo objetivo da entrega para o Maestro",
+					},
+				},
+				"required": []string{"name", "status"},
+			},
+		},
+		{
+			Name:        "mcp__overclock__pane_dismiss",
+			Description: "Fecha a janela do worker no Hyprland, valida Gate e realiza merge/limpeza da Git Worktree (Auto-Teardown)",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type":        "string",
+						"description": "Identificador do worker a encerrar",
+					},
+					"merge": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Se deve realizar o merge git na branch principal (padrão: true)",
+					},
+					"cleanup": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Se deve remover o diretório da worktree (padrão: true)",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "mcp__overclock__pane_list",
+			Description: "Lista todos os panes e workers ativos no Hyprland com status de conexão e handoff",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 			},
@@ -320,6 +518,259 @@ func (s *Server) handleToolCall(req *JSONRPCRequest) {
 			manifest.Name, manifest.Stack, manifest.PackageManager, manifest.RunCommand))
 		sb.WriteString(fmt.Sprintf("Arquivos na memória: %d\n", len(files)))
 		sb.WriteString(fmt.Sprintf("Total de tarefas no DAG: %d (Prontas: %d)\n", len(tasks), len(readyTasks)))
+		outputText = sb.String()
+
+	case "mcp__overclock__pane_spawn":
+		name, _ := call.Arguments["name"].(string)
+		task, _ := call.Arguments["task"].(string)
+		role, _ := call.Arguments["role"].(string)
+		contracts, _ := call.Arguments["contracts"].(string)
+		preset, _ := call.Arguments["preset"].(string)
+		terminalStr, _ := call.Arguments["terminal"].(string)
+		workspaceStr, _ := call.Arguments["workspace"].(string)
+		silentVal, _ := call.Arguments["silent"].(bool)
+		useWorktreeVal, hasWorktree := call.Arguments["use_worktree"].(bool)
+		useWorktree := true
+		if hasWorktree {
+			useWorktree = useWorktreeVal
+		}
+
+		if name == "" || task == "" {
+			s.sendError(req.ID, -32602, "Campos 'name' e 'task' são obrigatórios")
+			return
+		}
+
+		if preset == "" {
+			preset = "agy"
+		}
+
+		targetDir := s.projectDir
+		var branch string
+
+		// 1. Git Worktree Isolation
+		if useWorktree {
+			wm, err := s.ensureWorktreeMgr()
+			if err != nil {
+				s.sendError(req.ID, -32000, fmt.Sprintf("Falha ao inicializar WorktreeManager: %v", err))
+				return
+			}
+			wt, err := wm.CreateWorktree(name)
+			if err != nil {
+				s.sendError(req.ID, -32000, fmt.Sprintf("Falha ao criar Git Worktree: %v", err))
+				return
+			}
+			s.mu.Lock()
+			s.worktrees[name] = wt
+			s.mu.Unlock()
+			targetDir = wt.Path
+			branch = wt.Branch
+		}
+
+		// 2. Hub Registration
+		h, err := s.ensureHub()
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Falha ao inicializar Hub IPC: %v", err))
+			return
+		}
+
+		h.RegisterWorker(hub.WorkerInitPayload{
+			WorkerID:  name,
+			Role:      role,
+			Task:      task,
+			Contracts: contracts,
+			Worktree:  targetDir,
+			Branch:    branch,
+			Preset:    preset,
+		})
+
+		// 3. Spawning Window in Hyprland
+		termEnum := hyprland.TerminalKitty
+		if terminalStr != "" {
+			termEnum = hyprland.TerminalEmulator(terminalStr)
+		}
+
+		targetWs := workspaceStr
+		if targetWs == "" || targetWs == "current" {
+			targetWs = s.hyprland.GetCallerWorkspace()
+		}
+
+		workerCmd := fmt.Sprintf("overclock worker --id %s --sock %s || { echo \"\\n[Erro na execução do worker]\"; read -p \"Pressione ENTER para fechar...\" -r; }", name, h.SocketPath())
+		windowTitle := fmt.Sprintf("⚡ Overclock: %s", name)
+
+		err = s.hyprland.SpawnWindow(hyprland.WindowOptions{
+			Class:     "overclock-worker",
+			Title:     windowTitle,
+			Directory: targetDir,
+			Command:   workerCmd,
+			Terminal:  termEnum,
+			Workspace: targetWs,
+			Silent:    silentVal,
+		})
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Falha ao abrir janela no Hyprland: %v", err))
+			return
+		}
+
+		outputText = fmt.Sprintf("⚡ Pane disparado com sucesso!\n• Worker: %s\n• Diretório: %s\n• Branch: %s\n• Workspace: %s\n• Janela: '%s'\n• Preset: %s",
+			name, targetDir, branch, targetWs, windowTitle, preset)
+
+	case "mcp__overclock__pane_wait":
+		name, _ := call.Arguments["name"].(string)
+		timeoutSec, _ := call.Arguments["timeout_seconds"].(float64)
+		if timeoutSec <= 0 {
+			timeoutSec = 300
+		}
+
+		h, err := s.ensureHub()
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Hub não disponível: %v", err))
+			return
+		}
+
+		timeout := time.Duration(timeoutSec) * time.Second
+		handoff, errWait := h.WaitForHandoff(name, timeout)
+		if errWait != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Erro ao aguardar handoff de '%s': %v", name, errWait))
+			return
+		}
+
+		// Grava entrega na memória compartilhada
+		s.bb.RecordFact(memory.FactCategoryGeneral, fmt.Sprintf("handoff_%s", name),
+			fmt.Sprintf("Status: %s, Arquivos: %s", handoff.Status, strings.Join(handoff.Artifacts, ", ")), name)
+		_ = s.bb.SaveState(s.projectDir)
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("⚡ [HANDOFF RECEBIDO: %s]\n", name))
+		sb.WriteString(fmt.Sprintf("• Status: %s\n", handoff.Status))
+		sb.WriteString(fmt.Sprintf("• Artefatos Produzidos (%d): %s\n", len(handoff.Artifacts), strings.Join(handoff.Artifacts, ", ")))
+		sb.WriteString(fmt.Sprintf("• Notas de Entrega: %s\n", handoff.Notes))
+		outputText = sb.String()
+
+	case "mcp__overclock__pane_write":
+		name, _ := call.Arguments["name"].(string)
+		message, _ := call.Arguments["message"].(string)
+
+		h, err := s.ensureHub()
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Hub não disponível: %v", err))
+			return
+		}
+
+		err = h.SendToWorker(name, hub.MsgTypeWrite, message)
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Falha ao enviar mensagem para worker '%s': %v", name, err))
+			return
+		}
+		outputText = fmt.Sprintf("Mensagem enviada com sucesso para worker '%s'.", name)
+
+	case "mcp__overclock__handoff_submit":
+		name, _ := call.Arguments["name"].(string)
+		status, _ := call.Arguments["status"].(string)
+		notes, _ := call.Arguments["notes"].(string)
+		var artifacts []string
+		if rawArr, ok := call.Arguments["artifacts"].([]interface{}); ok {
+			for _, item := range rawArr {
+				if s, ok := item.(string); ok {
+					artifacts = append(artifacts, s)
+				}
+			}
+		}
+
+		h, err := s.ensureHub()
+		if err != nil {
+			s.sendError(req.ID, -32000, fmt.Sprintf("Hub não disponível: %v", err))
+			return
+		}
+
+		h.SubmitHandoff(name, &hub.HandoffPayload{
+			Status:    status,
+			Artifacts: artifacts,
+			Notes:     notes,
+		})
+		outputText = fmt.Sprintf("✅ Handoff de '%s' registrado com sucesso (Status: %s).", name, status)
+
+	case "mcp__overclock__pane_dismiss":
+		name, _ := call.Arguments["name"].(string)
+		mergeVal, hasMerge := call.Arguments["merge"].(bool)
+		merge := true
+		if hasMerge {
+			merge = mergeVal
+		}
+		cleanupVal, hasCleanup := call.Arguments["cleanup"].(bool)
+		cleanup := true
+		if hasCleanup {
+			cleanup = cleanupVal
+		}
+
+		s.mu.Lock()
+		wt, hasWt := s.worktrees[name]
+		delete(s.worktrees, name)
+		s.mu.Unlock()
+
+		var results []string
+
+		// 1. Signal dismiss to worker over IPC
+		if s.hub != nil {
+			_ = s.hub.SendToWorker(name, hub.MsgTypeDismiss, nil)
+			s.hub.UnregisterWorker(name)
+		}
+
+		// 2. Git Merge if worktree exists
+		if hasWt && s.worktreeMgr != nil {
+			if merge {
+				_ = s.worktreeMgr.CommitWorktree(wt, fmt.Sprintf("feat: finalize task %s", name))
+				if errMerge := s.worktreeMgr.MergeWorktree(wt); errMerge != nil {
+					results = append(results, fmt.Sprintf("⚠️ Falha no merge git: %v", errMerge))
+				} else {
+					results = append(results, fmt.Sprintf("✅ Merge realizado com sucesso na branch %s!", wt.BaseBranch))
+				}
+			}
+
+			if cleanup {
+				_ = s.worktreeMgr.CleanupWorktree(wt)
+				results = append(results, "🧹 Worktree removida do disco.")
+			}
+		}
+
+		// 3. Close Hyprland window
+		windowTitle := fmt.Sprintf("⚡ Overclock: %s", name)
+		if errClose := s.hyprland.CloseWindowByTitle(windowTitle); errClose != nil {
+			results = append(results, fmt.Sprintf("ℹ️ Janela no Hyprland: %v", errClose))
+		} else {
+			results = append(results, "🪟 Janela no Hyprland encerrada (Auto-Teardown concluído).")
+		}
+
+		outputText = fmt.Sprintf("⚡ Teardown de '%s':\n%s", name, strings.Join(results, "\n"))
+
+	case "mcp__overclock__pane_list":
+		h, _ := s.ensureHub()
+		workers := []string{}
+		if h != nil {
+			workers = h.ListWorkers()
+		}
+
+		clients, _ := s.hyprland.ListClients()
+		var overclockClients []hyprland.Client
+		for _, c := range clients {
+			if c.Class == "overclock-worker" || strings.Contains(c.Title, "Overclock") {
+				overclockClients = append(overclockClients, c)
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("⚡ [PANES & WORKERS OVERCLOCK NO HYPRLAND]\n")
+		sb.WriteString(fmt.Sprintf("Total de janelas ativas: %d\n", len(overclockClients)))
+		for _, c := range overclockClients {
+			sb.WriteString(fmt.Sprintf("• Janela: %s (PID: %d, Class: %s)\n", c.Title, c.PID, c.Class))
+		}
+		sb.WriteString(fmt.Sprintf("\nWorkers registrados no Hub IPC (%d):\n", len(workers)))
+		for _, w := range workers {
+			status := "Em execução"
+			if handoff, ok := h.GetHandoff(w); ok {
+				status = fmt.Sprintf("Handoff: %s (%d arquivos)", handoff.Status, len(handoff.Artifacts))
+			}
+			sb.WriteString(fmt.Sprintf("• %s: %s\n", w, status))
+		}
 		outputText = sb.String()
 
 	default:

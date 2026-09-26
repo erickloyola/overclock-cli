@@ -12,20 +12,20 @@ import (
 
 // Config encapsulates global CLI settings and runtime configurations.
 type Config struct {
-	Model       string
+	Model        string
 	SystemPrompt string
-	APIKeys     []string
-	Concurrency int
-	Stream      bool
-	JSONOutput  bool
-	Prune       bool
-	PruneLevel  string // "basic", "aggressive", "code", "log"
-	CachePrefix bool
-	Timeout     time.Duration
-	MaxRetries  int
-	Temperature float64
-	Verbose     bool
-	OutDir      string
+	APIKeys      []string
+	Concurrency  int
+	Stream       bool
+	JSONOutput   bool
+	Prune        bool
+	PruneLevel   string // "basic", "aggressive", "code", "log"
+	CachePrefix  bool
+	Timeout      time.Duration
+	MaxRetries   int
+	Temperature  float64
+	Verbose      bool
+	OutDir       string
 	UseWorktrees bool
 }
 

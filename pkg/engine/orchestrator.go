@@ -204,12 +204,12 @@ func (o *Orchestrator) RunCreateProject(
 	fmt.Printf("\n" + ui.Cyan + "═══════════════════════════════════════════════════════════════════════════════" + ui.Reset + "\n")
 	fmt.Printf(" " + ui.Bold + ui.Green + "🎉 PROJETO CRIADO COM SUCESSO PELO OVERCLOCK!" + ui.Reset + "\n")
 	fmt.Printf(" " + ui.Cyan + "═══════════════════════════════════════════════════════════════════════════════" + ui.Reset + "\n\n")
-	fmt.Printf("   • " + ui.Bold + "Nome:" + ui.Reset + "           %s\n", manifest.Name)
-	fmt.Printf("   • " + ui.Bold + "Stack:" + ui.Reset + "          %s\n", manifest.Stack)
-	fmt.Printf("   • " + ui.Bold + "Destino:" + ui.Reset + "        %s\n", outDir)
-	fmt.Printf("   • " + ui.Bold + "Arquivos:" + ui.Reset + "       %d arquivos gerados\n", len(filesWritten))
-	fmt.Printf("   • " + ui.Bold + "Tempo Total:" + ui.Reset + "    %.2fs (aceleração com %d workers)\n", totalDur.Seconds(), o.cfg.Concurrency)
-	fmt.Printf("   • " + ui.Bold + "Estado Salvo:" + ui.Reset + "   %s/.overclock/state.json\n\n", outDir)
+	fmt.Printf("   • "+ui.Bold+"Nome:"+ui.Reset+"           %s\n", manifest.Name)
+	fmt.Printf("   • "+ui.Bold+"Stack:"+ui.Reset+"          %s\n", manifest.Stack)
+	fmt.Printf("   • "+ui.Bold+"Destino:"+ui.Reset+"        %s\n", outDir)
+	fmt.Printf("   • "+ui.Bold+"Arquivos:"+ui.Reset+"       %d arquivos gerados\n", len(filesWritten))
+	fmt.Printf("   • "+ui.Bold+"Tempo Total:"+ui.Reset+"    %.2fs (aceleração com %d workers)\n", totalDur.Seconds(), o.cfg.Concurrency)
+	fmt.Printf("   • "+ui.Bold+"Estado Salvo:"+ui.Reset+"   %s/.overclock/state.json\n\n", outDir)
 
 	fmt.Println(" " + ui.Bold + "📁 Arquivos Gerados:" + ui.Reset)
 	for _, f := range filesWritten {
@@ -238,7 +238,7 @@ func (o *Orchestrator) RunCreateProject(
 	}
 
 	fmt.Printf("\n " + ui.Bold + "🚀 Para inicializar e rodar o projeto:" + ui.Reset + "\n")
-	fmt.Printf("   " + ui.Green + "cd %s" + ui.Reset, outDir)
+	fmt.Printf("   "+ui.Green+"cd %s"+ui.Reset, outDir)
 	if !lifecycle.InstallDeps && manifest.PackageManager != "" {
 		switch strings.ToLower(manifest.PackageManager) {
 		case "go":
@@ -256,10 +256,10 @@ func (o *Orchestrator) RunCreateProject(
 		case "none", "":
 			// No install step needed
 		default:
-			fmt.Printf(" && " + ui.Green + "%s install" + ui.Reset, manifest.PackageManager)
+			fmt.Printf(" && "+ui.Green+"%s install"+ui.Reset, manifest.PackageManager)
 		}
 	}
-	fmt.Printf(" && " + ui.Green + "%s" + ui.Reset + "\n\n", runCmd)
+	fmt.Printf(" && "+ui.Green+"%s"+ui.Reset+"\n\n", runCmd)
 
 	return nil
 }
@@ -626,12 +626,12 @@ func (o *Orchestrator) RunResumeProject(
 	fmt.Printf("\n" + ui.Cyan + "═══════════════════════════════════════════════════════════════════════════════" + ui.Reset + "\n")
 	fmt.Printf(" " + ui.Bold + ui.Green + "🎉 PROJETO RETOMADO E CONCLUÍDO COM SUCESSO!" + ui.Reset + "\n")
 	fmt.Printf(" " + ui.Cyan + "═══════════════════════════════════════════════════════════════════════════════" + ui.Reset + "\n\n")
-	fmt.Printf("   • " + ui.Bold + "Nome:" + ui.Reset + "           %s\n", manifest.Name)
-	fmt.Printf("   • " + ui.Bold + "Stack:" + ui.Reset + "          %s\n", manifest.Stack)
-	fmt.Printf("   • " + ui.Bold + "Destino:" + ui.Reset + "        %s\n", projectDir)
-	fmt.Printf("   • " + ui.Bold + "Arquivos:" + ui.Reset + "       %d arquivos no projeto\n", len(filesWritten))
-	fmt.Printf("   • " + ui.Bold + "Tempo Retomada:" + ui.Reset + " %.2fs\n", totalDur.Seconds())
-	fmt.Printf("   • " + ui.Bold + "Estado Atual:" + ui.Reset + "   %s/.overclock/state.json\n\n", projectDir)
+	fmt.Printf("   • "+ui.Bold+"Nome:"+ui.Reset+"           %s\n", manifest.Name)
+	fmt.Printf("   • "+ui.Bold+"Stack:"+ui.Reset+"          %s\n", manifest.Stack)
+	fmt.Printf("   • "+ui.Bold+"Destino:"+ui.Reset+"        %s\n", projectDir)
+	fmt.Printf("   • "+ui.Bold+"Arquivos:"+ui.Reset+"       %d arquivos no projeto\n", len(filesWritten))
+	fmt.Printf("   • "+ui.Bold+"Tempo Retomada:"+ui.Reset+" %.2fs\n", totalDur.Seconds())
+	fmt.Printf("   • "+ui.Bold+"Estado Atual:"+ui.Reset+"   %s/.overclock/state.json\n\n", projectDir)
 
 	fmt.Println(" " + ui.Bold + "📁 Arquivos do Projeto:" + ui.Reset)
 	for _, f := range filesWritten {

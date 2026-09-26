@@ -146,12 +146,12 @@ func showMemorySummary(dir string) {
 	fmt.Println(" " + ui.Bold + ui.Green + "🧠 RESUMO DA MEMÓRIA COMPARTILHADA (OVERCLOCK BLACKBOARD)" + ui.Reset)
 	fmt.Println(" " + ui.Cyan + "═══════════════════════════════════════════════════════════════════════════════" + ui.Reset)
 
-	fmt.Printf("\n • " + ui.Bold + "Projeto:" + ui.Reset + "           %s\n", manifest.Name)
-	fmt.Printf(" • " + ui.Bold + "Stack:" + ui.Reset + "             %s (%s)\n", manifest.Stack, manifest.PackageManager)
-	fmt.Printf(" • " + ui.Bold + "Arquivos:" + ui.Reset + "          %d registrados\n", len(files))
-	fmt.Printf(" • " + ui.Bold + "Fatos (OverMemory):" + ui.Reset + "%d registrados\n", len(facts))
-	fmt.Printf(" • " + ui.Bold + "Lições Aprendidas:" + ui.Reset + " %d registradas\n", len(lessons))
-	fmt.Printf(" • " + ui.Bold + "Eventos no Log:" + ui.Reset + "    %d transações gravadas\n", len(events))
+	fmt.Printf("\n • "+ui.Bold+"Projeto:"+ui.Reset+"           %s\n", manifest.Name)
+	fmt.Printf(" • "+ui.Bold+"Stack:"+ui.Reset+"             %s (%s)\n", manifest.Stack, manifest.PackageManager)
+	fmt.Printf(" • "+ui.Bold+"Arquivos:"+ui.Reset+"          %d registrados\n", len(files))
+	fmt.Printf(" • "+ui.Bold+"Fatos (OverMemory):"+ui.Reset+"%d registrados\n", len(facts))
+	fmt.Printf(" • "+ui.Bold+"Lições Aprendidas:"+ui.Reset+" %d registradas\n", len(lessons))
+	fmt.Printf(" • "+ui.Bold+"Eventos no Log:"+ui.Reset+"    %d transações gravadas\n", len(events))
 
 	if len(facts) > 0 {
 		fmt.Println("\n " + ui.Bold + "📋 Fatos Operacionais Recentes:" + ui.Reset)
@@ -190,9 +190,9 @@ func showMemoryFacts(dir string) {
 		return
 	}
 
-	fmt.Printf("\n" + ui.Bold + "📋 FATOS OPERACIONAIS (OVERMEMORY) - %s (%d fatos)" + ui.Reset + "\n\n", dir, len(facts))
+	fmt.Printf("\n"+ui.Bold+"📋 FATOS OPERACIONAIS (OVERMEMORY) - %s (%d fatos)"+ui.Reset+"\n\n", dir, len(facts))
 	for _, f := range facts {
-		fmt.Printf(" • " + ui.Cyan + "[%s]" + ui.Reset + " " + ui.Bold + "%s" + ui.Reset + "\n", f.Category, f.Key)
+		fmt.Printf(" • "+ui.Cyan+"[%s]"+ui.Reset+" "+ui.Bold+"%s"+ui.Reset+"\n", f.Category, f.Key)
 		fmt.Printf("   Valor: %s\n", f.Value)
 		fmt.Printf("   Fonte: %s | Registrado: %s\n\n", f.Source, f.CreatedAt.Format("02/01/2006 15:04:05"))
 	}
@@ -212,13 +212,13 @@ func showMemoryLessons(dir string) {
 		return
 	}
 
-	fmt.Printf("\n" + ui.Bold + "💡 LIÇÕES APRENDIDAS (FEEDBACK LOOP) - %s (%d lições)" + ui.Reset + "\n\n", dir, len(lessons))
+	fmt.Printf("\n"+ui.Bold+"💡 LIÇÕES APRENDIDAS (FEEDBACK LOOP) - %s (%d lições)"+ui.Reset+"\n\n", dir, len(lessons))
 	for _, l := range lessons {
 		fileStr := ""
 		if l.File != "" {
 			fileStr = fmt.Sprintf(" (%s)", l.File)
 		}
-		fmt.Printf(" • " + ui.Yellow + "[%s%s]" + ui.Reset + "\n", l.Trigger, fileStr)
+		fmt.Printf(" • "+ui.Yellow+"[%s%s]"+ui.Reset+"\n", l.Trigger, fileStr)
 		fmt.Printf("   Problema: %s\n", l.Pattern)
 		fmt.Printf("   Orientação: %s\n\n", l.Guidance)
 	}
@@ -235,9 +235,9 @@ func showMemoryEvents(dir string) {
 		return
 	}
 
-	fmt.Printf("\n" + ui.Bold + "📜 LOG TRANSACIONAL DE EVENTOS (%d registros):" + ui.Reset + "\n\n", len(events))
+	fmt.Printf("\n"+ui.Bold+"📜 LOG TRANSACIONAL DE EVENTOS (%d registros):"+ui.Reset+"\n\n", len(events))
 	for _, ev := range events {
-		fmt.Printf(" • [%s] " + ui.Green + "%-16s" + ui.Reset + " %+v\n",
+		fmt.Printf(" • [%s] "+ui.Green+"%-16s"+ui.Reset+" %+v\n",
 			ev.Timestamp.Format("15:04:05.000"), ev.Type, ev.Payload)
 	}
 	fmt.Println()
@@ -300,7 +300,7 @@ func showMemoryHistory(dir, filePath string) {
 		return
 	}
 
-	fmt.Printf("\n" + ui.Bold + "📜 HISTÓRICO DE REVISÕES: %s" + ui.Reset + "\n", filePath)
+	fmt.Printf("\n"+ui.Bold+"📜 HISTÓRICO DE REVISÕES: %s"+ui.Reset+"\n", filePath)
 	fmt.Printf("Versão Atual: v%d (%d bytes, hash: %.8s) por %s\n\n", f.Version, f.Bytes, f.Hash, f.GeneratedBy)
 
 	revs := bb.GetFileRevisions(filePath)
@@ -310,7 +310,7 @@ func showMemoryHistory(dir, filePath string) {
 	}
 
 	for _, rev := range revs {
-		fmt.Printf(" • " + ui.Cyan + "Versão %d" + ui.Reset + " (%d bytes, hash: %.8s) - por %s [%s]\n",
+		fmt.Printf(" • "+ui.Cyan+"Versão %d"+ui.Reset+" (%d bytes, hash: %.8s) - por %s [%s]\n",
 			rev.Version, rev.Bytes, rev.Hash, rev.ModifiedBy, rev.Timestamp.Format("02/01 15:04:05"))
 		if rev.Reason != "" {
 			fmt.Printf("   Motivo: %s\n", rev.Reason)

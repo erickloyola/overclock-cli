@@ -118,4 +118,3 @@ func TestSelfHealStageGate(t *testing.T) {
 		t.Errorf("Esperava GeneratedBy == 'Gate2-SelfHeal', obteve: %s", fileArt.GeneratedBy)
 	}
 }
-

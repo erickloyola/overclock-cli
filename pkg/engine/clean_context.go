@@ -10,7 +10,7 @@ var (
 	// Matches thinking/monologue tags like <thinking>...</thinking> or [THINKING]...
 	thinkingTagRegex = regexp.MustCompile(`(?is)<thinking>.*?</thinking>|\[THINKING\].*?\[/THINKING\]`)
 	// Matches raw shell command noise or terminal output snippets
-	shellBlockRegex  = regexp.MustCompile("(?s)```(?:bash|sh|zsh|shell|cmd|powershell)\\s*\\n(?:\\$|>)?\\s*(?:cat|ls|cd|mkdir|rm|touch|echo|npm|bun|go run|cargo)\\b.*?\\n```")
+	shellBlockRegex = regexp.MustCompile("(?s)```(?:bash|sh|zsh|shell|cmd|powershell)\\s*\\n(?:\\$|>)?\\s*(?:cat|ls|cd|mkdir|rm|touch|echo|npm|bun|go run|cargo)\\b.*?\\n```")
 )
 
 // SanitizedWorkerDelivery represents a pristine delivery filtered by the Maestro Hub.

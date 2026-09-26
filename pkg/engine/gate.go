@@ -204,10 +204,10 @@ func FindStageDefects(bb *memory.Blackboard, stage int) []StageDefect {
 
 			if len(strings.TrimSpace(fileArt.Content)) == 0 {
 				defects = append(defects, StageDefect{
-					TaskID:    t.ID,
-					FilePath:  clean,
-					Reason:    fmt.Sprintf("Arquivo '%s' gerado está vazio (0 bytes)", clean),
-					IsEmpty:   true,
+					TaskID:   t.ID,
+					FilePath: clean,
+					Reason:   fmt.Sprintf("Arquivo '%s' gerado está vazio (0 bytes)", clean),
+					IsEmpty:  true,
 				})
 			}
 		}
@@ -347,7 +347,6 @@ DIRETRIZES:
 	newEval := EvaluateStageGate(bb, stage)
 	return newEval, nil
 }
-
 
 // EvaluateIntegrationGate audits the final project consistency and integrity (Gate 3).
 func EvaluateIntegrationGate(bb *memory.Blackboard) *GateEvaluation {

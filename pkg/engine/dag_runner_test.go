@@ -102,4 +102,3 @@ func TestRunDAGWithOptions_EventDrivenAndGates(t *testing.T) {
 		t.Errorf("Fato compartilhado não foi registrado: %+v", fact)
 	}
 }
-

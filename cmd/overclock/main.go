@@ -41,6 +41,7 @@ USO:
   overclock resume [FLAGS] [PASTA]               Retoma um projeto interrompido a partir do estado salvo
   overclock memory [COMANDO] [PASTA]             Inspeciona fatos, lições, histórico e rollback da memória
   overclock mcp [--dir PASTA]                    Inicia o servidor MCP nativo (Model Context Protocol)
+  overclock worker --id ID [FLAGS]               Executa sessão de worker dentro de um pane Kitty
   overclock [FLAGS] "PROMPT"                     Modo Pipe/Direto (lê STDIN se disponível)
   overclock map [FLAGS] "PROMPT" [ARQUIVOS...]   Processa múltiplos arquivos em paralelo
   overclock lines [FLAGS] "PROMPT"               Processa STDIN linha a linha em paralelo
@@ -279,6 +280,9 @@ func main() {
 			return
 		case "mcp":
 			handleMCP(args[1:])
+			return
+		case "worker":
+			handleWorker(args[1:])
 			return
 		case "create":
 			mode = "create"

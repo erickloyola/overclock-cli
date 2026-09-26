@@ -18,7 +18,7 @@ var (
 	// Matches: // types/benchmark.ts or // src/components/Metric.tsx
 	inlinePathRegex = regexp.MustCompile(`^(?://|#)\s*(?:file:\s*|path:\s*)?([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)`)
 	// Matches: ### 1. `types.ts` or ### 2. MetricCard.tsx or (types/benchmark.ts)
-	headerPathRegex = regexp.MustCompile(`(?:` + "`" + `|\()([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)(?:` + "`" + `|\))`)
+	headerPathRegex   = regexp.MustCompile(`(?:` + "`" + `|\()([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)(?:` + "`" + `|\))`)
 	headerDirectRegex = regexp.MustCompile(`###\s+(?:\d+\.\s+)?([a-zA-Z0-9_.\-\/]+\.[a-zA-Z0-9]+)`)
 )
 

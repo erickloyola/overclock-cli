@@ -27,14 +27,14 @@ const (
 
 // OAuthAccount represents a persistent Google authenticated account profile.
 type OAuthAccount struct {
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	Expiry       time.Time `json:"expiry"`
-	TokenType    string    `json:"token_type"`
-	ClientID     string    `json:"client_id,omitempty"`
-	ClientSecret string    `json:"client_secret,omitempty"`
+	Name         string     `json:"name"`
+	Email        string     `json:"email"`
+	AccessToken  string     `json:"access_token"`
+	RefreshToken string     `json:"refresh_token"`
+	Expiry       time.Time  `json:"expiry"`
+	TokenType    string     `json:"token_type"`
+	ClientID     string     `json:"client_id,omitempty"`
+	ClientSecret string     `json:"client_secret,omitempty"`
 	mu           sync.Mutex `json:"-"`
 }
 
@@ -127,7 +127,7 @@ func (a *OAuthAccount) GetValidToken() (string, error) {
 	defer a.mu.Unlock()
 
 	// If token has at least 2 minutes remaining, reuse it
-	if time.Now().Before(a.Expiry.Add(-2 * time.Minute)) && a.AccessToken != "" {
+	if time.Now().Before(a.Expiry.Add(-2*time.Minute)) && a.AccessToken != "" {
 		return a.AccessToken, nil
 	}
 

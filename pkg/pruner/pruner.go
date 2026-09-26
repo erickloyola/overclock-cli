@@ -9,25 +9,25 @@ import (
 var (
 	// Regex to remove ANSI color escape sequences
 	ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	
+
 	// Code comment matchers
 	lineCommentRegex = regexp.MustCompile(`^\s*(//|#|--|/\*|\*).*$`)
-	
+
 	// Repeated whitespace inside lines
 	multiSpaceRegex = regexp.MustCompile(`[ \t]{2,}`)
-	
+
 	// Systemd / Syslog timestamp noise: e.g. "Sep 22 09:12:01 hostname app[1234]: "
 	syslogHeaderRegex = regexp.MustCompile(`^[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+[\w.-]+\s+[\w.-]+(\[\d+\])?:\s*`)
 )
 
 // Options configuration for context pruning.
 type Options struct {
-	Level           string // "basic", "aggressive", "code", "log"
-	StripANSI       bool
-	CollapseBlanks  bool
-	TrimTrailing    bool
-	StripComments   bool
-	SimplifyLogs    bool
+	Level          string // "basic", "aggressive", "code", "log"
+	StripANSI      bool
+	CollapseBlanks bool
+	TrimTrailing   bool
+	StripComments  bool
+	SimplifyLogs   bool
 }
 
 // DefaultOptions returns standard pruning options.
@@ -44,10 +44,10 @@ func DefaultOptions() Options {
 
 // Stats returns compression ratio metrics.
 type Stats struct {
-	OriginalBytes int
-	PrunedBytes   int
-	SavedBytes    int
-	SavingsPct    float64
+	OriginalBytes  int
+	PrunedBytes    int
+	SavedBytes     int
+	SavingsPct     float64
 	EstTokensSaved int
 }
 

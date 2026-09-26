@@ -33,7 +33,7 @@ type ProjectManifest struct {
 	RunCommand     string   `json:"run_command"`     // e.g. "bun dev", "go run .", "python main.py"
 	BuildCommand   string   `json:"build_command"`   // e.g. "bun build", "go build"
 	TestCommand    string   `json:"test_command"`    // e.g. "bun test", "go test ./..."
-	Conventions    []string `json:"conventions"`    // styling, architecture rules, folder patterns
+	Conventions    []string `json:"conventions"`     // styling, architecture rules, folder patterns
 }
 
 // FactCategory classifies a shared piece of operational knowledge (OverMemory style).

@@ -112,17 +112,17 @@ func (t *Terminal) PrintChunk(chunk string) {
 
 // BatchItemResult structures batch output for JSON and Map modes.
 type BatchItemResult struct {
-	Index        int           `json:"index"`
-	Source       string        `json:"source,omitempty"`
-	Response     string        `json:"response"`
-	TTFTMs       int64         `json:"ttft_ms"`
-	DurationMs   int64         `json:"duration_ms"`
-	TokensPerSec float64       `json:"tokens_per_sec"`
-	PromptTokens int           `json:"prompt_tokens"`
-	OutputTokens int           `json:"output_tokens"`
-	Retries      int           `json:"retries"`
-	PruneSavings float64       `json:"prune_savings_pct,omitempty"`
-	Error        string        `json:"error,omitempty"`
+	Index        int     `json:"index"`
+	Source       string  `json:"source,omitempty"`
+	Response     string  `json:"response"`
+	TTFTMs       int64   `json:"ttft_ms"`
+	DurationMs   int64   `json:"duration_ms"`
+	TokensPerSec float64 `json:"tokens_per_sec"`
+	PromptTokens int     `json:"prompt_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	Retries      int     `json:"retries"`
+	PruneSavings float64 `json:"prune_savings_pct,omitempty"`
+	Error        string  `json:"error,omitempty"`
 }
 
 // EmitResult outputs a single execution result according to output mode.

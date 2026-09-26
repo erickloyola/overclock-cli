@@ -151,4 +151,3 @@ func TestAuditBlueprintMandatoryTestSuiteCoverage(t *testing.T) {
 		t.Errorf("Esperava registro de auto-patch de testes no relatório, obteve: %v", report.AutoPatchesApplied)
 	}
 }
-

@@ -261,5 +261,3 @@ func (e *Entity) Process(ctx context.Context) error {
 		t.Errorf("WorkerContext deveria ter injetado a Interface Pública enxuta para o arquivo de dependência")
 	}
 }
-
-
